@@ -1,0 +1,9 @@
+*.csv 
+*.ckpt
+*.pth
+*.json 
+*.pkl
+*.jpg
+*.parquet
+*.pyc
+bitmodels.egg-info/
