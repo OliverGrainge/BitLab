@@ -1,6 +1,9 @@
-from bitmodels import register_model
-from .config import BitMLPConfig
 import torch.nn as nn
+
+from bitmodels import register_model
+
+from .config import BitMLPConfig
+
 
 @register_model("BitMLPModel")
 class BitMLPModel(nn.Module):
@@ -8,7 +11,7 @@ class BitMLPModel(nn.Module):
         super().__init__()
         self.config = config
         self.quant_config = quant_config
-        
+
         # Build layers
         layers = []
         in_dim = config.in_channels
@@ -18,9 +21,9 @@ class BitMLPModel(nn.Module):
             if config.dropout > 0:
                 layers.append(nn.Dropout(config.dropout))
             in_dim = config.hidden_dim
-        
+
         layers.append(nn.Linear(in_dim, config.out_channels))
         self.network = nn.Sequential(*layers)
-    
+
     def forward(self, x):
         return self.network(x)
