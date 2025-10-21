@@ -1,4 +1,4 @@
-from .ops import bitlinear, bitconv2d, bitmatmul
+from .ops import bitlinear
 from .config import BitQuantConfig
 
-__all__ = ["BitQuantConfig", "bitlinear", "bitconv2d", "bitmatmul"]
+__all__ = ["BitQuantConfig", "bitlinear"]

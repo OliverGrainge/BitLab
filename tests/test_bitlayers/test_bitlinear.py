@@ -59,36 +59,46 @@ class TestBitLinear:
             BitLinear(in_features=10, out_features=5, init_method='invalid_method')
     
     def test_quantization_params_per_tensor(self):
-        """Test quantization parameter initialization for per_tensor granularity"""
+        """Test quantization parameter creation for per_tensor granularity"""
         config = BitQuantConfig(
             weight_granularity="per_tensor",
             activation_granularity="per_tensor"
         )
         layer = BitLinear(in_features=10, out_features=5, quant_config=config)
         
-        # Check weight quantization parameters
-        assert hasattr(layer, 'weight_scale')
-        assert layer.weight_scale.shape == (1,)
+        # Initially, quantization parameters should not exist
+        assert not hasattr(layer, 'qweight_scale')
+        assert not hasattr(layer, 'qweight')
         
-        # Check activation quantization parameters
-        assert hasattr(layer, 'activation_scale')
-        assert layer.activation_scale.shape == (1,)
+        # Enter eval mode to create quantization parameters
+        layer.eval()
+        
+        # Check weight quantization parameters
+        assert hasattr(layer, 'qweight_scale')
+        assert layer.qweight_scale.shape == torch.Size([])  # scalar tensor for per_tensor
+        assert hasattr(layer, 'qweight')
+        assert layer.qweight.shape == (5, 10)  # out_features, in_features
     
     def test_quantization_params_per_channel(self):
-        """Test quantization parameter initialization for per_channel granularity"""
+        """Test quantization parameter creation for per_channel granularity"""
         config = BitQuantConfig(
             weight_granularity="per_channel",
             activation_granularity="per_channel"
         )
         layer = BitLinear(in_features=10, out_features=5, quant_config=config)
         
-        # Check weight quantization parameters (per output channel)
-        assert hasattr(layer, 'weight_scale')
-        assert layer.weight_scale.shape == (5,)  # out_features
+        # Initially, quantization parameters should not exist
+        assert not hasattr(layer, 'qweight_scale')
+        assert not hasattr(layer, 'qweight')
         
-        # Check activation quantization parameters (per input channel)
-        assert hasattr(layer, 'activation_scale')
-        assert layer.activation_scale.shape == (10,)  # in_features
+        # Enter eval mode to create quantization parameters
+        layer.eval()
+        
+        # Check weight quantization parameters (per output channel)
+        assert hasattr(layer, 'qweight_scale')
+        assert layer.qweight_scale.shape == (5,)  # out_features
+        assert hasattr(layer, 'qweight')
+        assert layer.qweight.shape == (5, 10)  # out_features, in_features
     
     def test_forward_pass_training_mode(self):
         """Test forward pass in training mode"""
@@ -153,22 +163,37 @@ class TestBitLinear:
         """Test that all parameters are trainable"""
         layer = BitLinear(in_features=10, out_features=5)
         
-        # Check that parameters are registered
+        # Check that only the main parameters are registered initially
         param_names = [name for name, _ in layer.named_parameters()]
         assert 'weight' in param_names
         assert 'bias' in param_names
-        assert 'weight_scale' in param_names
-        assert 'activation_scale' in param_names
+        # Quantization parameters are not trainable parameters, they're buffers created in eval mode
+        assert 'qweight_scale' not in param_names
+        assert 'qx_scale' not in param_names
+        
+        # Check that quantization parameters are created as buffers in eval mode
+        layer.eval()
+        buffer_names = [name for name, _ in layer.named_buffers()]
+        assert 'qweight_scale' in buffer_names
+        assert 'qweight' in buffer_names
     
     def test_parameters_are_trainable_no_bias(self):
         """Test that parameters are trainable when bias=False"""
         layer = BitLinear(in_features=10, out_features=5, bias=False)
         
-        # Check that parameters are registered (except bias)
+        # Check that only the main parameters are registered initially
         param_names = [name for name, _ in layer.named_parameters()]
         assert 'weight' in param_names
         assert 'bias' not in param_names
-        assert 'activation_scale' in param_names
+        # Quantization parameters are not trainable parameters, they're buffers created in eval mode
+        assert 'qweight_scale' not in param_names
+        assert 'qx_scale' not in param_names
+        
+        # Check that quantization parameters are created as buffers in eval mode
+        layer.eval()
+        buffer_names = [name for name, _ in layer.named_buffers()]
+        assert 'qweight_scale' in buffer_names
+        assert 'qweight' in buffer_names
 
     def test_gradient_flow(self):
         """Test that gradients flow properly through the layer"""

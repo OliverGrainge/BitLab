@@ -15,5 +15,5 @@ class BitQuantConfig:
     weight_granularity: Literal["per_tensor", "per_channel"] = "per_tensor"
     # Weights are always ternary (-1, 0, 1) in this framework.
 
-    activation_dtype: Literal["float32"] = "float32"
+    activation_dtype: Literal["float32", "int8"] = "float32"
     activation_granularity: Literal["per_tensor", "per_channel"] = "per_tensor"

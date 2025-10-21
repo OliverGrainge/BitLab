@@ -1,3 +1,4 @@
+import quopri
 from bitlayers import register_layer 
 import torch.nn as nn
 import torch
@@ -26,8 +27,6 @@ class BitLinear(BitLayerBase):
         else:
             self.register_parameter('bias', None)
         
-        # Initialize quantization parameters based on config
-        self._init_quantization_params()
 
     def _init_weight(self, init_method):
         """Initialize weight with appropriate method for quantized layers"""
@@ -43,30 +42,60 @@ class BitLinear(BitLayerBase):
             else:
                 raise ValueError(f"Unknown initialization method: {init_method}")
 
-    def _init_quantization_params(self):
-        """Initialize quantization parameters based on quant_config"""
-        # Weight quantization parameters
-        if self.quant_config.weight_granularity == "per_tensor":
-            self.weight_scale = nn.Parameter(torch.ones(1))
-        elif self.quant_config.weight_granularity == "per_channel":
-            self.weight_scale = nn.Parameter(torch.ones(self.out_features))
-        
-        # Activation quantization parameters
-        if self.quant_config.activation_granularity == "per_tensor":
-            self.activation_scale = nn.Parameter(torch.ones(1))
-        elif self.quant_config.activation_granularity == "per_channel":
-            self.activation_scale = nn.Parameter(torch.ones(self.in_features))
 
-    def _train_forward(self, input): 
-        return bitlinear(input, self.weight, self.bias, self.quant_config) 
+    def _train_forward(self, x: torch.Tensor): 
+        """Training forward pass - uses full precision weights"""
+        if self.is_deployed:
+            # If deployed, we no longer have original weights, use eval forward
+            raise RuntimeError("Deployed layers cannot enter training mode")
+        return bitlinear.forward(x=x, weight=self.weight, bias=self.bias, quant_config=self.quant_config, training=True)
 
-    def _eval_forward(self, input): 
-        return bitlinear(input, self.weight, self.bias, self.quant_config)
+    def _eval_forward(self, x: torch.Tensor): 
+        """Evaluation forward pass - uses quantized weights"""
+        return bitlinear.forward(x=x, qweight_scale=self.qweight_scale, qweight=self.qweight, bias=self.bias, quant_config=self.quant_config, training=False)
 
     def _on_enter_training_mode(self):
-        """Called when entering training mode - override in subclasses"""
-        pass
+        """Called when entering training mode - remove quantized weights and scales"""
+        if self.is_deployed:
+            # Deployed layers can't enter training mode
+            raise RuntimeError("Deployed layers cannot enter training mode")
+        
+        if 'qweight' in self._buffers:
+            delattr(self, 'qweight')
+        if 'qweight_scale' in self._buffers:
+            delattr(self, 'qweight_scale')
+        if 'qx_scale' in self._buffers:
+            delattr(self, 'qx_scale')
 
     def _on_enter_eval_mode(self):
-        """Called when entering evaluation mode - override in subclasses"""
-        pass
+        """Called when entering evaluation mode - create quantized weights and scales"""
+        if self.is_deployed:
+            # Deployed layers already have quantized weights, no need to recreate
+            return 
+        
+        qweight_scale, qweight = bitlinear.prepare_weights(self.weight, self.quant_config)
+        
+        # Store quantization parameters as buffers since they're computed values, not learnable parameters
+        self.register_buffer('qweight_scale', qweight_scale)
+        self.register_buffer('qweight', qweight)
+
+    def _perform_deployment(self): 
+        """Perform deployment by permanently quantizing the layer and removing latent weights"""
+        # Ensure we're in eval mode with quantized weights
+        if not hasattr(self, 'qweight_scale'):
+            self._on_enter_eval_mode()
+        
+        # Keep only quantized weights and scales, remove original weights
+        self.qweight_scale = self.qweight_scale.detach()
+        self.qweight = self.qweight.detach()
+        
+        # Keep bias as a regular tensor (remove gradients)
+        if self.bias is not None:
+            # Convert bias parameter to buffer to remove gradients
+            bias_tensor = self.bias.detach()
+            # Remove the parameter first, then register as buffer
+            delattr(self, 'bias')
+            self.register_buffer('bias', bias_tensor)
+        
+        # Remove original full-precision weights - they're no longer needed
+        delattr(self, 'weight')
