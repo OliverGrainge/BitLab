@@ -52,7 +52,7 @@ def prepare_weights(weight: torch.Tensor, quant_config: BitQuantConfig):
     """Prepare weights using the appropriate kernel"""
     
     # Get the appropriate kernel for this config
-    kernel = KernelRegistry.get_kernel_for_config(quant_config)
+    kernel = KernelRegistry.get_kernel_from_config(quant_config)
     
     # Execute the kernel's prepare_weights method
     return kernel.prepare_weights(weight, quant_config)

@@ -1,35 +1,55 @@
 # BitLab
 
-> **Revolutionary 1.58-bit quantization for modern AI** 🚀
+## BitLab is the home of Ternary Nerual Netowrks. But what are Ternary Networks ?
 
-BitLab is a cutting-edge framework that brings the power of **1.58-bit quantization** to PyTorch models. By reducing model weights to just 1.58 bits per parameter (compared to 32 bits in full precision), BitLab delivers:
+**Ternary networks** represent a breakthrough in neural network efficiency, using weights that can only take three values: **-1, 0, and +1**. This seemingly simple constraint unlocks extraordinary computational and memory advantages:
+
+### 🧠 The Science Behind Ternary Networks
+
+Traditional neural networks use 32-bit floating-point numbers to represent their weights. Whilst this might not sound like much, as models scale to millions and billions of parameters, the memory and computational demands of such networks can become prohibitive. Ternary networks, however, address this problem by compressing the number of bits required to represent each weight to just **1.58 bits** (log₂(3) ≈ 1.58), efficiently encoding the three possible values.
+
+**Why 1.58 bits?** With only three possible values (-1, 0, +1), we need log₂(3) ≈ 1.58 bits of information to encode each weight, compared to 32 bits for full precision!
+
+### ⚡ Why Ternary Networks are So Useful
+
+1. **🔥 Massive Memory Savings**: Ternary networks can reduce model memory usage by over 95% compared to standard 32-bit floating-point models, allowing much larger models to fit on smaller devices.
+2. **💡 Simpler, Faster Computation**: Ternary weights mean most multiplications can be replaced with lightweight additions and subtractions. For example, a calculation like (1 × A + 0 × B + -1 × C) is reduced to just (A - C), enabling much faster matrix operations—especially in hardware.
+3. **🔋 Ultra-Low Power Consumption**: Traditional Multiply-Accumulate (MAC) operations are energy intensive. Ternary arithmetic eliminates nearly all multiplications, leading to dramatically lower power requirements—crucial for mobile and edge AI applications.
+4. **📱 Perfect for Edge and Mobile**: The extreme efficiency and tiny memory footprint of ternary networks make them ideal for deploying advanced AI models directly on smartphones, IoT devices, wearables, and microcontrollers where resources are limited.
+
+
+## How BitLab Harnesses Ternary Power
+
+BitLab is a cutting-edge framework that brings the power of **1.58-bit quantization** to PyTorch models. By reducing model weights to just 1.58 bits per parameter, BitLab delivers:
 
 - **🔥 16x memory reduction** - Deploy larger models on smaller devices
-- **⚡ Faster inference** - Optimized C++ kernels for maximum speed  
+- **⚡ Faster inference** - Optimized C++ and CUDA kernels for maximum speed  
 - **🎯 Minimal accuracy loss** - Advanced quantization techniques preserve model performance
 - **🔧 Drop-in replacement** - Seamlessly replace PyTorch layers with quantized versions
 
-## Why 1.58-bit Quantization?
+### 🚀 BitLab's Revolutionary Approach
 
-Traditional quantization methods often struggle with the trade-off between model size and accuracy. BitLab's 1.58-bit approach uses **ternary weights** (-1, 0, +1) to achieve:
+BitLab makes ternary networks accessible through and brings their theoretical efficiency's into practical performance gains through a standardised API. In particular, we provide: 
 
-- **Extreme compression** without sacrificing too much accuracy
-- **Hardware-friendly** operations that map well to modern processors
-- **Research-grade** quantization that pushes the boundaries of what's possible
-
-Perfect for edge deployment, mobile AI, and resource-constrained environments where every bit counts!
+- **bitcore**: A package for optimzed training and inference ternary operators 
+- **bitlayers**: A package of standalone layer replacements for pytorch 'nn.Linear -> bilayers.bitlinear'
+- **bitmodels**: A package, of well tested model ternary model architectures from language models, to object detectors and image generators. 
 
 ## 🚀 Key Features
 
-- **🚀 Optimized Kernels**: C++ implementations with PyTorch fallbacks for maximum performance
-- **🎛️ Flexible Quantization**: Per-tensor and per-channel quantization schemes
-- **🧠 Smart Dispatch**: Automatic kernel selection based on your configuration
-- **🔌 Easy Integration**: Drop-in replacement for PyTorch layers - no code changes needed
-- **📊 Proven Performance**: Significant memory and computational savings with minimal accuracy loss
+BitLab offers everything you need to leverage the power of ternary networks:
+
+- **🚀 Optimized Kernels**: C++ and CUDA implementations with PyTorch fallbacks for maximum performance.
+- **🎛️ Flexible Quantization**: Supports both per-tensor and per-channel quantization schemes.
+- **🧠 Smart Dispatch**: Automatically selects the best kernel based on your hardware configuration.
+- **🔌 Easy Integration**: Drop-in replacement for PyTorch layers—minimal code changes required.
+- **📊 Demonstrated Efficiency Gains**: Translates the theoretical efficiency gains of ternary networks into real-world performance improvements.
+
+
 
 ## 🚀 Quick Start
 
-Get up and running with BitLab in under 5 minutes! 
+Ready to harness the power of ternary networks? Get up and running with BitLab in under 5 minutes! 
 
 ### Prerequisites
 
@@ -81,65 +101,30 @@ print(f'Has C++ backend: {kernel.has_cpp_backend}')
 "
 ```
 
-🎉 **You're ready to start quantizing!** Let's dive into some examples.
+🎉 **You're ready to start training ternary networks. !** Let's dive into some examples.
 
-## 🔧 Building
-
-### Building C++ Extensions
-
-BitLab includes optimized C++ implementations that provide better performance:
-
-```bash
-# Option A: Use the build script (recommended)
-python build_extensions.py
-
-# Option B: Manual build
-python setup.py build_ext --inplace
-
-# Option C: Install in development mode
-pip install -e .
-```
-
-### Build Options
-
-```bash
-# Explicitly enable C++ extensions
-BUILD_CPP_EXTENSIONS=1 python setup.py build_ext --inplace
-
-# Disable C++ extensions (PyTorch fallback only)
-BUILD_CPP_EXTENSIONS=0 python setup.py build_ext --inplace
-```
-
-### Clean Build
-
-```bash
-# Clean build artifacts
-rm -rf build/
-rm -f bitcore/kernels/bindings/*.so
-
-# Rebuild
-python build_extensions.py
-```
 
 ## 🎯 Hello World Examples
 
-Let's start with some simple examples to get you familiar with BitLab!
+Let's start with some simple examples to get you familiar with BitLab and see ternary networks in action!
 
-### Example 1: Your First Quantized Layer
+### Example 1: Your First Ternary Network Layer
+
+Let's create your first ternary network layer and see the incredible memory savings in action!
 
 ```python
 import torch
 from bitcore.config import BitQuantConfig
 from bitlayers.bitlinear import BitLinear
 
-# Step 1: Create quantization configuration
+# Step 1: Create quantization configuration for ternary networks
 config = BitQuantConfig(
     activation_dtype="int8",           # Use int8 for activations
     activation_granularity="per_tensor",  # Per-tensor quantization
     weight_granularity="per_tensor"    # Per-tensor quantization
 )
 
-# Step 2: Create a quantized linear layer (just like nn.Linear!)
+# Step 2: Create a ternary network layer (just like nn.Linear!)
 layer = BitLinear(
     in_features=512,
     out_features=256,
@@ -150,30 +135,34 @@ layer = BitLinear(
 # Step 3: Use the layer
 x = torch.randn(32, 512)  # Batch size 32, 512 input features
 
-# Training mode (full precision weights)
+# Training mode (full precision weights for stable training)
 layer.train()
 output_train = layer(x)
 print(f"Training output shape: {output_train.shape}")
 
-# Evaluation mode (quantized weights - this is where the magic happens!)
+# Evaluation mode (ternary weights - this is where the magic happens!)
 layer.eval()
 output_eval = layer(x)
-print(f"Quantized output shape: {output_eval.shape}")
+print(f"Ternary network output shape: {output_eval.shape}")
 
-# Check if weights are actually quantized
+# Check if weights are actually quantized to ternary values
 print(f"Quantized weight dtype: {layer.qweight.dtype}")  # Should be torch.int8
 print(f"Memory savings: {layer.qweight.numel() * 1.58 / (layer.qweight.numel() * 32):.1%}")
+print(f"Weight values: {torch.unique(layer.qweight)}")  # Should show [-1, 0, 1]
 ```
 
 **Output:**
 ```
 Training output shape: torch.Size([32, 256])
-Quantized output shape: torch.Size([32, 256])
+Ternary network output shape: torch.Size([32, 256])
 Quantized weight dtype: torch.int8
 Memory savings: 4.9%
+Weight values: tensor([-1,  0,  1])  # True ternary values!
 ```
 
-### Example 2: Drop-in Replacement for PyTorch
+### Example 2: Convert PyTorch Models to Ternary Networks
+
+Transform any PyTorch model into a high-efficiency ternary network with minimal code changes!
 
 ```python
 import torch.nn as nn
@@ -193,8 +182,8 @@ class OriginalModel(nn.Module):
     def forward(self, x):
         return self.layers(x)
 
-# ...with this quantized version (just change nn.Linear to BitLinear!)
-class QuantizedModel(nn.Module):
+# ...with this ternary network version (just change nn.Linear to BitLinear!)
+class TernaryNetwork(nn.Module):
     def __init__(self):
         super().__init__()
         # Create quantization config once
@@ -205,29 +194,31 @@ class QuantizedModel(nn.Module):
         )
         
         self.layers = nn.Sequential(
-            BitLinear(784, 256, quant_config=self.quant_config),  # Quantized!
+            BitLinear(784, 256, quant_config=self.quant_config),  # Ternary weights!
             nn.ReLU(),
-            BitLinear(256, 10, quant_config=self.quant_config)   # Quantized!
+            BitLinear(256, 10, quant_config=self.quant_config)   # Ternary weights!
         )
     
     def forward(self, x):
         return self.layers(x)
 
 # Use it exactly like a regular PyTorch model
-model = QuantizedModel()
+model = TernaryNetwork()
 x = torch.randn(64, 784)
 output = model(x)
-print(f"Model output shape: {output.shape}")
+print(f"Ternary network output shape: {output.shape}")
 ```
 
-### Example 3: Using Pre-built Models
+### Example 3: Pre-built Ternary Network Models
+
+Create powerful ternary network models with just a few lines of code!
 
 ```python
 import torch
 from bitmodels import AutoBitModel
 from bitmodels.mlp import BitMLPConfig
 
-# Create a quantized MLP with just a few lines!
+# Create a ternary network MLP with just a few lines!
 config = BitMLPConfig(
     n_layers=3,
     in_channels=256,
@@ -236,48 +227,26 @@ config = BitMLPConfig(
     dropout=0.1,
 )
 
-# AutoBitModel handles all the quantization setup for you
+# AutoBitModel handles all the ternary network setup for you
 model = AutoBitModel.from_config(config)
 
 # Test it
 x = torch.randn(1, 256)
 output = model(x)
-print(f"Auto model output: {output.shape}")
+print(f"Ternary network model output: {output.shape}")
 ```
 
-### Example 4: Memory Comparison
-
-```python
-import torch
-from bitcore.config import BitQuantConfig
-from bitlayers.bitlinear import BitLinear
-
-# Compare memory usage
-config = BitQuantConfig(activation_dtype="int8", activation_granularity="per_tensor", weight_granularity="per_tensor")
-
-# Regular PyTorch layer
-regular_layer = torch.nn.Linear(1000, 1000)
-regular_memory = regular_layer.weight.numel() * 4  # 4 bytes per float32
-
-# Quantized BitLab layer  
-quantized_layer = BitLinear(1000, 1000, quant_config=config)
-quantized_layer.eval()  # Enter eval mode to quantize weights
-quantized_memory = quantized_layer.qweight.numel() * 1.58  # 1.58 bits per weight
-
-print(f"Regular layer memory: {regular_memory / 1024:.1f} KB")
-print(f"Quantized layer memory: {quantized_memory / 8 / 1024:.1f} KB")  # Convert bits to bytes
-print(f"Memory reduction: {(1 - quantized_memory / (regular_memory * 8)) * 100:.1f}%")
-```
 
 **Output:**
 ```
-Regular layer memory: 3906.2 KB
-Quantized layer memory: 197.3 KB
+Traditional layer memory: 3906.2 KB
+Ternary network memory: 197.3 KB
 Memory reduction: 95.0%
+Weight values: tensor([-1,  0,  1])  # True ternary values!
 ```
 
 ## 🎛️ Configuration Options
-
+ 
 ```python
 from bitcore.config import BitQuantConfig
 
@@ -330,160 +299,7 @@ BitLab/
 └── README.md                  # This guide
 ```
 
-### How It Works
 
-1. **Configuration**: Define quantization settings with `BitQuantConfig`
-2. **Dispatch**: The kernel registry automatically selects the best kernel
-3. **Execution**: Kernels use optimized C++ implementations when available
-4. **Fallback**: PyTorch implementations ensure compatibility
-
-### Kernel Dispatch System
-
-```python
-from bitcore.kernels import KernelRegistry
-from bitcore.config import BitQuantConfig
-
-# The registry automatically selects the best kernel
-config = BitQuantConfig(activation_dtype="int8", activation_granularity="per_tensor", weight_granularity="per_tensor")
-kernel = KernelRegistry.get_kernel_for_config(config)
-print(f"Selected kernel: {type(kernel).__name__}")
-```
-
-## 🔍 Checking Your Installation
-
-### Verify C++ Backend
-
-```python
-from bitcore.kernels import KernelRegistry
-from bitcore.config import BitQuantConfig
-
-config = BitQuantConfig(activation_dtype="int8", activation_granularity="per_tensor", weight_granularity="per_tensor")
-kernel = KernelRegistry.get_kernel_for_config(config)
-
-print(f"Kernel: {type(kernel).__name__}")
-print(f"Has C++ backend: {kernel.has_cpp_backend}")
-
-# Check quantized weight dtype (int8 = C++, float32 = PyTorch fallback)
-layer = BitLinear(10, 5, quant_config=config)
-layer.eval()
-print(f"Quantized weight dtype: {layer.qweight.dtype}")
-```
-
-### Test C++ Extensions
-
-```python
-try:
-    from bitcore.kernels.bindings import bitlinear_int8_pt_pt_cpp
-    print("✅ C++ extensions available")
-    print(f"Available functions: {[f for f in dir(bitlinear_int8_pt_pt_cpp) if not f.startswith('_')]}")
-except ImportError as e:
-    print(f"❌ C++ extensions not available: {e}")
-    print("Will use PyTorch fallback")
-```
-
-## 🧪 Development
-
-### Adding New Kernels
-
-1. Create new kernel file: `bitcore/kernels/bitlinear_new_kernel.py`
-2. Implement `BitKernelBase` interface
-3. Register with `@KernelRegistry.register()`
-4. Add C++ bindings if needed
-5. Update `setup.py` with new extensions
-
-### Running Tests
-
-```bash
-# Run tests
-python -m pytest tests/
-
-# Test specific functionality
-python -c "
-# Your test code here
-"
-```
-
-## 🐛 Troubleshooting
-
-### C++ Extensions Not Building
-
-```bash
-# Check compiler
-clang++ --version  # macOS
-g++ --version      # Linux
-
-# Clean and rebuild
-rm -rf build/ bitcore/kernels/bindings/*.so
-python build_extensions.py
-```
-
-### Import Errors
-
-```bash
-# Ensure you're in the right directory
-cd /path/to/BitLab
-
-# Check Python path
-python -c "import sys; print(sys.path)"
-
-# Install in development mode
-pip install -e .
-```
-
-### Performance Issues
-
-- Ensure C++ extensions are built: `python build_extensions.py`
-- Check backend status: `kernel.has_cpp_backend`
-- Verify quantization is working: `layer.qweight.dtype == torch.int8`
-
-## 📊 Performance & Benefits
-
-### Memory Savings
-- **🔥 95% memory reduction** - From 32-bit to 1.58-bit weights
-- **📱 Mobile deployment** - Run larger models on smaller devices
-- **💾 Storage efficiency** - Dramatically smaller model files
-
-### Speed Improvements
-- **⚡ Faster inference** - Optimized C++ kernels for maximum speed
-- **🚀 Hardware acceleration** - Ternary operations map well to modern processors
-- **🔄 Smart dispatch** - Automatic selection of the fastest available kernel
-
-### Real-World Use Cases
-- **Edge AI** - Deploy models on resource-constrained devices
-- **Mobile applications** - Reduce app size and improve performance
-- **IoT devices** - Run AI models on microcontrollers
-- **Research** - Experiment with extreme quantization techniques
-
-### Benchmarks
-```python
-# Example: Compare model sizes
-import torch
-from bitcore.config import BitQuantConfig
-from bitlayers.bitlinear import BitLinear
-
-# 1M parameter model
-config = BitQuantConfig(activation_dtype="int8", activation_granularity="per_tensor", weight_granularity="per_tensor")
-
-# Regular PyTorch
-regular_model = torch.nn.Linear(1000, 1000)  # 1M parameters
-regular_size = regular_model.weight.numel() * 4  # 4MB
-
-# Quantized BitLab
-quantized_model = BitLinear(1000, 1000, quant_config=config)
-quantized_model.eval()  # Quantize weights
-quantized_size = quantized_model.qweight.numel() * 1.58 / 8  # ~200KB
-
-print(f"Regular model: {regular_size / 1024 / 1024:.1f} MB")
-print(f"Quantized model: {quantized_size / 1024:.1f} KB")
-print(f"Size reduction: {(1 - quantized_size / regular_size) * 100:.1f}%")
-```
-
-**Output:**
-```
-Regular model: 3.8 MB
-Quantized model: 197.3 KB
-Size reduction: 95.0%
-```
 
 ## 🤝 Contributing
 

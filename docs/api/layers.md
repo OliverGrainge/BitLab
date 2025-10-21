@@ -1,6 +1,16 @@
 # Layers API Reference
 
-This section documents the quantized layer implementations in BitLab.
+This section documents the quantized layer implementations in BitLab. These layers provide high-level interfaces to BitLab's core quantization operations, automatically handling the complexity of training with straight-through estimators (STE) and efficient inference with optimized ternary kernels.
+
+## Overview
+
+BitLab layers are built on top of the core `bitlinear.forward` operation, which provides the fundamental 1.58-bit quantization functionality. The layers abstract away the complexity of:
+
+- **Training Mode**: Full-precision weights with automatic quantization and STE gradient flow
+- **Evaluation Mode**: Quantized weights with automatic kernel dispatch for optimal performance
+- **Deployment**: Permanent quantization for production inference
+
+The layers automatically manage the transition between these modes and ensure optimal performance through BitLab's kernel registry system.
 
 ## BitLinear
 
@@ -34,7 +44,19 @@ layer = BitLinear(
 
 #### forward(x)
 
-Forward pass through the layer.
+Forward pass through the quantized network. The behavior depends on the layer's current mode:
+
+**Training Mode** (`layer.training=True`):
+- Uses full-precision weights internally
+- Automatically quantizes weights during forward pass
+- Applies straight-through estimator (STE) for gradient flow
+- Maintains training stability while using quantized computations
+
+**Evaluation Mode** (`layer.training=False`):
+- Uses pre-quantized weights and scales
+- Dispatches to optimized ternary kernels automatically
+- Maximizes inference performance through kernel selection
+- No gradient computation
 
 ```python
 output = layer(x)
@@ -46,6 +68,10 @@ output = layer(x)
 **Returns:**
 - **output** (`torch.Tensor`): Output tensor of shape `(N, *, out_features)`
 
+**Internal Process:**
+1. **Training**: `x` → quantize → `bitlinear.forward` with full weights → output
+2. **Evaluation**: `x` → quantize → `bitlinear.forward` with quantized weights → output
+
 #### train(mode=True)
 
 Set layer to training mode.
@@ -55,9 +81,11 @@ layer.train()
 ```
 
 In training mode:
-- Uses full precision weights
-- Enables gradient computation
-- Removes quantized weights and scales
+- **Weight Management**: Maintains full-precision weights for gradient updates
+- **Forward Pass**: Automatically quantizes weights during computation using `bitlinear.forward`
+- **Gradient Flow**: Straight-through estimator (STE) enables gradients to flow through discrete quantization operations
+- **Training Stability**: Preserves training dynamics while using quantized forward computations
+- **Memory**: Stores both full-precision weights and quantized versions as needed 
 
 #### eval()
 
@@ -68,9 +96,12 @@ layer.eval()
 ```
 
 In evaluation mode:
-- Uses quantized weights
-- Disables gradient computation
-- Creates quantized weights and scales
+- **Weight Quantization**: Automatically quantizes weights using `bitlinear.prepare_weights`
+- **Kernel Dispatch**: Automatically selects and dispatches the most efficient ternary kernel for your configuration
+- **Performance Optimization**: Leverages hardware-specific optimizations (AVX, CUDA, etc.) when available
+- **Memory Efficiency**: Uses quantized weights (1.58-bit) instead of full-precision
+- **No Gradients**: Disables gradient computation for inference efficiency
+- **Automatic Selection**: No manual kernel selection required - BitLab chooses optimal backend 
 
 #### deploy()
 
@@ -81,9 +112,11 @@ layer.deploy()
 ```
 
 After deployment:
-- Layer becomes inference-only
-- Original weights are removed
-- Cannot return to training mode
+- **Inference-Only**: Layer becomes permanently quantized and cannot return to training mode
+- **Memory Optimization**: Original full-precision weights are removed, keeping only quantized weights and scales
+- **Kernel Optimization**: All forward passes use the most efficient ternary kernels available
+- **Production Ready**: Layer is optimized for deployment with minimal memory footprint
+- **Irreversible**: Cannot be used for training after deployment 
 
 ### Properties
 
@@ -127,72 +160,6 @@ print(f"Quantized weight dtype: {layer.qweight.dtype}")
 print(f"Memory savings: {layer.qweight.numel() * 1.58 / (layer.qweight.numel() * 32):.1%}")
 ```
 
-## BitLayerBase
-
-Base class for all quantized layers.
-
-```python
-from bitlayers.base import BitLayerBase
-
-class CustomBitLayer(BitLayerBase):
-    def _train_forward(self, x):
-        # Training forward pass
-        pass
-    
-    def _eval_forward(self, x):
-        # Evaluation forward pass
-        pass
-    
-    def _on_enter_training_mode(self):
-        # Handle training mode entry
-        pass
-    
-    def _on_enter_eval_mode(self):
-        # Handle evaluation mode entry
-        pass
-    
-    def _perform_deployment(self):
-        # Handle deployment
-        pass
-```
-
-### Abstract Methods
-
-Subclasses must implement:
-
-- **`_train_forward(x)`**: Training forward pass
-- **`_eval_forward(x)`**: Evaluation forward pass  
-- **`_on_enter_training_mode()`**: Training mode entry handler
-- **`_on_enter_eval_mode()`**: Evaluation mode entry handler
-- **`_perform_deployment()`**: Deployment handler
-
-### Properties
-
-- **quant_config** (`BitQuantConfig`): Quantization configuration
-- **is_deployed** (`bool`): Whether layer has been deployed
-
-## Layer Registry
-
-Register custom layers for use with model builders.
-
-```python
-from bitlayers import register_layer
-
-@register_layer("CustomBitLinear")
-class CustomBitLinear(BitLayerBase):
-    # Implementation
-    pass
-```
-
-### Usage
-
-```python
-from bitlayers import LAYER_REGISTRY
-
-# Get registered layer
-CustomLayer = LAYER_REGISTRY['CustomBitLinear']
-layer = CustomLayer(in_features=10, out_features=5)
-```
 
 ## Memory Analysis
 
@@ -227,39 +194,3 @@ print(f"Memory reduction: {comparison['reduction']:.1%}")
 print(f"Speed improvement: {comparison['speedup']:.1f}x")
 ```
 
-## Best Practices
-
-### 1. Configuration
-```python
-# Use appropriate granularity for your use case
-config = BitQuantConfig(
-    weight_granularity="per_tensor",      # Faster
-    activation_granularity="per_channel"  # More accurate
-)
-```
-
-### 2. Training vs Evaluation
-```python
-# Always use eval() for inference
-layer.eval()
-with torch.no_grad():
-    output = layer(input)
-```
-
-### 3. Deployment
-```python
-# Deploy for production inference
-layer.deploy()
-# Layer is now inference-only
-```
-
-### 4. Memory Management
-```python
-# Check quantization status
-if layer.is_deployed:
-    print("Layer is deployed (inference-only)")
-elif hasattr(layer, 'qweight'):
-    print("Layer is quantized (eval mode)")
-else:
-    print("Layer is in training mode")
-```

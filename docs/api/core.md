@@ -30,17 +30,19 @@ config = BitQuantConfig(
   - `"per_tensor"`: Global quantization for all activations
   - `"per_channel"`: Per-channel quantization
 
+> Note: Of course we are 1.58 bit weights, weight_dtype not required. 
+
 #### Example Usage
 
 ```python
-# Per-tensor quantization (faster, less accurate)
+# Per-tensor quantization
 config = BitQuantConfig(
     weight_granularity="per_tensor",
     activation_dtype="int8",
     activation_granularity="per_tensor"
 )
 
-# Per-channel quantization (slower, more accurate)
+# Per-channel quantization 
 config = BitQuantConfig(
     weight_granularity="per_channel",
     activation_dtype="int8", 
@@ -52,7 +54,7 @@ config = BitQuantConfig(
 
 ### bitlinear.forward
 
-The core bitlinear operation that performs quantized linear transformations.
+The bitcore contains the core operators, required for 1.58bit network inference and training. Lets see an example before, in which 
 
 ```python
 from bitcore.ops import bitlinear
@@ -65,6 +67,8 @@ output = bitlinear.forward(
     quant_config=config,
     training=True
 )
+
+qweight_scale, qweight = bitlinear.prepare_weights(weight, quant_config)
 
 # Evaluation mode (quantized weights)
 output = bitlinear.forward(
@@ -91,23 +95,7 @@ output = bitlinear.forward(
 
 - **output** (`torch.Tensor`): Output tensor of shape `(N, *, out_features)`
 
-### bitlinear.prepare_weights
 
-Prepare weights for quantization.
-
-```python
-qweight_scale, qweight = bitlinear.prepare_weights(weight, quant_config)
-```
-
-#### Parameters
-
-- **weight** (`torch.Tensor`): Full precision weights to quantize
-- **quant_config** (`BitQuantConfig`): Quantization configuration
-
-#### Returns
-
-- **qweight_scale** (`torch.Tensor`): Scale factors for dequantization
-- **qweight** (`torch.Tensor`): Quantized weights
 
 ## Kernels
 

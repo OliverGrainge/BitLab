@@ -1,3 +1,11 @@
+#!/usr/bin/env python3
+"""
+BitLab MLP Training Example
+
+This example demonstrates training a BitLinear MLP on MNIST dataset.
+Shows the complete workflow from data loading to model evaluation.
+"""
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -15,6 +23,7 @@ from bitmodels import AutoBitModel
 from bitmodels.mlp import BitMLPConfig, BitMLPModel
 
 def get_mnist_loaders(batch_size=64):
+    """Load MNIST dataset with proper transforms"""
     transform = transforms.Compose([
         transforms.ToTensor(), 
         transforms.Lambda(lambda x: x.view(-1)),  # flatten 28x28 to 784
@@ -26,6 +35,7 @@ def get_mnist_loaders(batch_size=64):
     return train_loader, test_loader
 
 def train_one_epoch(model, optimizer, dataloader, device, loss_fn, progress, task):
+    """Train model for one epoch"""
     model.train()
     total_loss, correct, total = 0.0, 0, 0
     
@@ -49,6 +59,7 @@ def train_one_epoch(model, optimizer, dataloader, device, loss_fn, progress, tas
     return avg_loss, acc
 
 def evaluate(model, dataloader, device, loss_fn):
+    """Evaluate model on test set"""
     model.eval()
     total_loss, correct, total = 0.0, 0, 0
     with torch.no_grad():
@@ -91,6 +102,7 @@ def create_results_table(results):
     return table
 
 def main():
+    """Main training function"""
     console = Console()
     
     # Display header
