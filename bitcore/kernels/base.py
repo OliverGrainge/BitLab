@@ -12,7 +12,7 @@ class BitKernelBase(ABC):
         self.quant_config = quant_config
     
     @abstractmethod
-    def prepare_weights(self, weight: torch.Tensor, quant_config: BitQuantConfig):
+    def quantize_weights(self, weight: torch.Tensor, quant_config: BitQuantConfig):
         """Prepare weights for this kernel's specific requirements"""
         pass
     
@@ -41,7 +41,7 @@ class ReferenceKernel(BitKernelBase):
         self.dequantize_weight = dequantize_weight
         self.F = F
     
-    def prepare_weights(self, weight: torch.Tensor, quant_config: BitQuantConfig):
+    def quantize_weights(self, weight: torch.Tensor, quant_config: BitQuantConfig):
         """Reference weight preparation"""
         qweight_scale = self.compute_weight_scale(weight, quant_config)
         qweight = self.quantize_weight(weight, qweight_scale, quant_config)
