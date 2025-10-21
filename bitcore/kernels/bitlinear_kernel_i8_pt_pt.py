@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 from bitcore.kernels.base import BitKernelBase
 from bitcore.config import BitQuantConfig
-from bitcore.ops.base import quantize_weight, quantize_x, compute_weight_scale, compute_x_scale, dequantize_x, dequantize_weight
+from bitcore.ops.utils import quantize_weight, quantize_x, compute_weight_scale, compute_x_scale, dequantize_x, dequantize_weight
 from bitcore.kernels.registry import KernelRegistry
 
 # Import the optimized C++ bindings directly

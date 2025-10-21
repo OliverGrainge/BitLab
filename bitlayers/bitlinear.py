@@ -48,11 +48,11 @@ class BitLinear(BitLayerBase):
         if self.is_deployed:
             # If deployed, we no longer have original weights, use eval forward
             raise RuntimeError("Deployed layers cannot enter training mode")
-        return bitlinear.forward(x=x, weight=self.weight, bias=self.bias, quant_config=self.quant_config, training=True)
+        return bitlinear.train_forward(x=x, weight=self.weight, bias=self.bias, quant_config=self.quant_config)
 
     def _eval_forward(self, x: torch.Tensor): 
         """Evaluation forward pass - uses quantized weights"""
-        return bitlinear.forward(x=x, qweight_scale=self.qweight_scale, qweight=self.qweight, bias=self.bias, quant_config=self.quant_config, training=False)
+        return bitlinear.eval_forward(x=x, qweight_scale=self.qweight_scale, qweight=self.qweight, bias=self.bias, quant_config=self.quant_config)
 
     def _on_enter_training_mode(self):
         """Called when entering training mode - remove quantized weights and scales"""
@@ -73,7 +73,7 @@ class BitLinear(BitLayerBase):
             # Deployed layers already have quantized weights, no need to recreate
             return 
         
-        qweight_scale, qweight = bitlinear.prepare_weights(self.weight, self.quant_config)
+        qweight_scale, qweight = bitlinear.quantize_weights(self.weight, self.quant_config)
         
         # Store quantization parameters as buffers since they're computed values, not learnable parameters
         self.register_buffer('qweight_scale', qweight_scale)
