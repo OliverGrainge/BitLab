@@ -19,7 +19,8 @@ except ImportError:
         config.activation_dtype == "int8" and
         config.activation_granularity == "per_tensor" and
         config.weight_granularity == "per_tensor"
-    )
+    ),
+    priority=100  # Just add this
 )
 class bitlinear_kernel_i8_pt_pt(BitKernelBase):
     """Optimized kernel for INT8 per-tensor quantization with C++ bindings"""
