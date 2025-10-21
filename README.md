@@ -289,6 +289,20 @@ config = BitQuantConfig(
 )
 ```
 
+## 📚 Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+- **[📖 Documentation Index](docs/index.md)** - Complete documentation overview
+- **[🚀 Quick Start Guide](docs/README.md)** - Get up and running in 5 minutes
+- **[🔧 Installation Guide](docs/installation.md)** - Detailed setup instructions
+- **[📚 API Reference](docs/api/)** - Complete API documentation
+  - [Core API](docs/api/core.md) - Core quantization functionality
+  - [Layers API](docs/api/layers.md) - Quantized layer implementations
+  - [Models API](docs/api/models.md) - Pre-built quantized models
+- **[💡 Examples](docs/examples/)** - Code examples and tutorials
+- **[📊 Benchmarks](docs/benchmarks/)** - Performance results and comparisons
+
 ## 🏗️ Architecture
 
 ### Package Structure
@@ -306,6 +320,11 @@ BitLab/
 │   ├── bitlinear.py           # Quantized linear layer
 │   └── base.py               # Base layer class
 ├── bitmodels/                 # Model definitions
+├── docs/                      # Documentation
+│   ├── api/                   # API reference
+│   ├── examples/              # Code examples
+│   ├── tutorials/             # Step-by-step guides
+│   └── benchmarks/            # Performance results
 ├── setup.py                   # Package setup
 ├── build_extensions.py        # Build script
 └── README.md                  # This guide
