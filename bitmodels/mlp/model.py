@@ -6,6 +6,8 @@ from bitmodels.base import BitModelBase
 from .config import BitMLPConfig
 from bitlayers import LAYER_REGISTRY
 
+
+
 @register_model("BitMLPModel")
 class BitMLPModel(BitModelBase):
     def __init__(self, config: BitMLPConfig, quant_config=None):
