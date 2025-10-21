@@ -29,14 +29,14 @@ class bitlinear_kernel_i8_pt_pt(BitKernelBase):
         super().__init__(quant_config)
         self.has_cpp_backend = HAS_OPTIMIZED_BACKEND
     
-    def prepare_weights(self, weight: torch.Tensor, quant_config: BitQuantConfig):
+    def quantize_weights(self, weight: torch.Tensor, quant_config: BitQuantConfig):
         """Prepare weights using optimized C++ implementation"""
         if self.has_cpp_backend:
             # Use optimized C++ implementation
-            return bitlinear_int8_pt_pt_cpp.prepare_weights(weight)
+            return bitlinear_int8_pt_pt_cpp.quantize_weights(weight)
         else:
             # Fallback to pure PyTorch
-            return self._pytorch_prepare_weights_fallback(weight, quant_config)
+            return self._pytorch_quantize_weights_fallback(weight, quant_config)
     
     def __call__(self, x: torch.Tensor, qweight_scale: torch.Tensor, qweight: torch.Tensor, 
                 bias: torch.Tensor = None, quant_config: BitQuantConfig = None):
@@ -48,8 +48,8 @@ class bitlinear_kernel_i8_pt_pt(BitKernelBase):
             # Fallback to pure PyTorch
             return self._pytorch_forward_fallback(x, qweight_scale, qweight, bias, quant_config)
     
-    def _pytorch_prepare_weights_fallback(self, weight: torch.Tensor, quant_config: BitQuantConfig):
-        """Fallback prepare_weights using pure PyTorch"""
+    def _pytorch_quantize_weights_fallback(self, weight: torch.Tensor, quant_config: BitQuantConfig):
+        """Fallback quantize_weights using pure PyTorch"""
         qweight_scale = compute_weight_scale(weight, quant_config)
         qweight = quantize_weight(weight, qweight_scale, quant_config)
         return qweight_scale, qweight

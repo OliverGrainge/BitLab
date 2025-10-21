@@ -21,4 +21,4 @@ def eval_forward(x: torch.Tensor, qweight_scale: torch.Tensor, qweight: torch.Te
 
 def quantize_weights(weight: torch.Tensor, quant_config: BitQuantConfig): 
     kernel = KernelRegistry.get_kernel_from_config(quant_config)
-    return kernel.prepare_weights(weight, quant_config)
+    return kernel.quantize_weights(weight, quant_config)

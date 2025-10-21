@@ -1,70 +1,56 @@
-# bitcore/kernels/registry.py
-from typing import Dict, Type, Optional, Callable, List, Tuple
+from typing import Type, Callable, List
+from dataclasses import dataclass
 from bitcore.config import BitQuantConfig
 from bitcore.kernels.base import BitKernelBase, ReferenceKernel
 
 
+@dataclass
+class KernelEntry:
+    priority: int
+    name: str
+    kernel_class: Type[BitKernelBase]
+    matcher: Callable[[BitQuantConfig], bool]
+
+
 class KernelRegistry:
-    """Registry for managing bitlinear kernels with decorator support"""
+    """Registry for managing bitlinear kernels"""
     
-    # Store (priority, name, class, matcher) tuples
-    _entries: List[Tuple[int, str, Type[BitKernelBase], Callable]] = []
+    _entries: List[KernelEntry] = []
     _default_kernel: Type[BitKernelBase] = ReferenceKernel
     
     @classmethod
-    def register(
-        cls, 
-        config_matcher: Callable[[BitQuantConfig], bool],
-        name: str = None,
-        priority: int = 0
-    ):
-        """
-        Register a kernel with config matching.
-        
-        Higher priority kernels are checked first.
-        
-        Usage:
-            @KernelRegistry.register(
-                lambda config: config.activation_dtype == "int8",
-                priority=100
-            )
-            class Int8Kernel(BitKernelBase):
-                pass
-        """
+    def register(cls, matcher: Callable[[BitQuantConfig], bool], 
+                 name: str = None, priority: int = 0):
+        """Register a kernel with priority-based dispatch"""
         def decorator(kernel_class: Type[BitKernelBase]):
-            kernel_name = name or kernel_class.__name__
-            
-            # Add entry with priority
-            cls._entries.append((priority, kernel_name, kernel_class, config_matcher))
-            
-            # Sort by priority (highest first)
-            cls._entries.sort(key=lambda x: x[0], reverse=True)
-            
+            entry = KernelEntry(
+                priority=priority,
+                name=name or kernel_class.__name__,
+                kernel_class=kernel_class,
+                matcher=matcher
+            )
+            cls._entries.append(entry)
+            cls._entries.sort(key=lambda e: e.priority, reverse=True)
             return kernel_class
-        
         return decorator
     
     @classmethod
-    def get_kernel_from_config(cls, quant_config: BitQuantConfig) -> BitKernelBase:
-        """Get the best kernel for the given config"""
-        
-        # Check entries in priority order
-        for priority, name, kernel_class, matcher in cls._entries:
-            if matcher(quant_config):
-                return kernel_class(quant_config)
-        
-        # Fallback to default kernel
-        return cls._default_kernel(quant_config)
+    def get_kernel_from_config(cls, config: BitQuantConfig) -> BitKernelBase:
+        """Get best kernel for config"""
+        for entry in cls._entries:
+            if entry.matcher(config):
+                return entry.kernel_class(config)
+        return cls._default_kernel(config)
     
     @classmethod
-    def get_kernel_by_name(cls, name: str, quant_config: BitQuantConfig) -> BitKernelBase:
-        """Get a specific kernel by name"""
-        for _, kernel_name, kernel_class, _ in cls._entries:
-            if kernel_name == name:
-                return kernel_class(quant_config)
+    def get_kernel_by_name(cls, name: str, config: BitQuantConfig) -> BitKernelBase:
+        """Get specific kernel by name"""
+        for entry in cls._entries:
+            if entry.name == name:
+                return entry.kernel_class(config)
         raise ValueError(f"Unknown kernel: {name}")
     
     @classmethod
-    def list_available_kernels(cls):
-        """List all available kernels"""
-        return [name for _, name, _, _ in cls._entries]
+    def list_kernels(cls) -> List[str]:
+        """List all registered kernels in priority order"""
+        return [e.name for e in cls._entries]
