@@ -7,3 +7,4 @@
 *.parquet
 *.pyc
 bitmodels.egg-info/
+*.so 
