@@ -15,8 +15,8 @@ torch::Tensor compute_activation_scale_per_tensor(torch::Tensor x) {
     return max_abs / 127.0;
 }
 
-// Optimized C++ implementation for prepare_weights
-std::pair<torch::Tensor, torch::Tensor> bitlinear_int8_pt_pt_prepare_weights(
+// Optimized C++ implementation for quantize_weights
+std::pair<torch::Tensor, torch::Tensor> bitlinear_int8_pt_pt_quantize_weights(
     torch::Tensor weight
 ) {
     // Compute weight scale for per-tensor quantization
@@ -61,7 +61,7 @@ torch::Tensor bitlinear_int8_pt_pt_forward(
 PYBIND11_MODULE(bitlinear_int8_pt_pt_cpp, m) {
     m.doc() = "C++ bindings for BitLinear INT8 per-tensor operations";
     
-    m.def("prepare_weights", &bitlinear_int8_pt_pt_prepare_weights, 
+    m.def("quantize_weights", &bitlinear_int8_pt_pt_quantize_weights, 
           "Prepare weights for INT8 per-tensor quantization",
           py::arg("weight"));
     
