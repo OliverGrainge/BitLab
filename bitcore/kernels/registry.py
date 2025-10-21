@@ -45,7 +45,7 @@ class KernelRegistry:
         return decorator
     
     @classmethod
-    def get_kernel_for_config(cls, quant_config: BitQuantConfig) -> BitKernelBase:
+    def get_kernel_from_config(cls, quant_config: BitQuantConfig) -> BitKernelBase:
         """Get the best kernel for the given config"""
         
         # Check dispatch rules in order of registration

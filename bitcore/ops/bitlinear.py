@@ -43,7 +43,7 @@ def _eval_bitlinear(x: torch.Tensor, qweight_scale: torch.Tensor, qweight: torch
     """Evaluation forward with kernel dispatch"""
     
     # Get the appropriate kernel for this config
-    kernel = KernelRegistry.get_kernel_for_config(quant_config)
+    kernel = KernelRegistry.get_kernel_from_config(quant_config)
     
     # Execute the kernel's __call__ method
     return kernel(x, qweight_scale, qweight, bias, quant_config)
