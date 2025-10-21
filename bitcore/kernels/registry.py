@@ -77,7 +77,7 @@ class KernelRegistry:
                 return entry.kernel_class(config)
         
         # Fall back to default kernel with warning
-        logger.warning(f"No optimized kernel found for config {config}, using reference kernel")
+        #logger.warning(f"No optimized kernel found for config {config}, using reference kernel")
         return cls._default_kernel(config)
     
     @classmethod

@@ -14,6 +14,21 @@ from rich import box
 from bitmodels import AutoBitModel
 from bitmodels.mlp import BitMLPConfig, BitMLPModel
 
+def detect_device():
+    """Detect and return the best available device for training."""
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        device_name = torch.cuda.get_device_name(0)
+        device_info = f"CUDA ({device_name})"
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = torch.device("mps")
+        device_info = "Apple Metal Performance Shaders (MPS)"
+    else:
+        device = torch.device("cpu")
+        device_info = "CPU"
+    
+    return device, device_info
+
 def get_mnist_loaders(batch_size=64):
     transform = transforms.Compose([
         transforms.ToTensor(), 
@@ -112,7 +127,8 @@ def main():
     # Use AutoBitModel for maximum flexibility
     model = AutoBitModel.from_config(config)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Detect and use the best available accelerator
+    device, device_info = detect_device()
     model.to(device)
 
     # Display model info
@@ -120,7 +136,7 @@ def main():
     console.print(f"\n[bold]Model Information:[/bold]")
     console.print(f"  Type: {type(model).__name__}")
     console.print(f"  Parameters: {param_count:,}")
-    console.print(f"  Device: {device}")
+    console.print(f"  Device: {device_info}")
     console.print(f"  Architecture: {config.n_layers} layers, {config.hidden_dim} hidden units")
 
     # Load data
@@ -137,7 +153,7 @@ def main():
     results = {}
     console.print(f"\n[bold]Starting Training...[/bold]")
     
-    for epoch in range(1, 4):
+    for epoch in range(1, 6):
         epoch_start_time = time.time()
         
         # Training phase with progress bar
