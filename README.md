@@ -4,30 +4,30 @@
 
 **Ternary networks** represent a breakthrough in neural network efficiency, using weights that can only take three values: **-1, 0, and +1**. This seemingly simple constraint unlocks extraordinary computational and memory advantages:
 
-### 🧠 The Science Behind Ternary Networks
+### The Science Behind Ternary Networks
 
 Traditional neural networks use 32-bit floating-point numbers to represent their weights. Whilst this might not sound like much, as models scale to millions and billions of parameters, the memory and computational demands of such networks can become prohibitive. Ternary networks, however, address this problem by compressing the number of bits required to represent each weight to just **1.58 bits** (log₂(3) ≈ 1.58), efficiently encoding the three possible values.
 
 **Why 1.58 bits?** With only three possible values (-1, 0, +1), we need log₂(3) ≈ 1.58 bits of information to encode each weight, compared to 32 bits for full precision!
 
-### ⚡ Why Ternary Networks are So Useful
+### Why Ternary Networks are So Useful
 
-1. **🔥 Massive Memory Savings**: Ternary networks can reduce model memory usage by over 95% compared to standard 32-bit floating-point models, allowing much larger models to fit on smaller devices.
-2. **💡 Simpler, Faster Computation**: Ternary weights mean most multiplications can be replaced with lightweight additions and subtractions. For example, a calculation like (1 × A + 0 × B + -1 × C) is reduced to just (A - C), enabling much faster matrix operations—especially in hardware.
-3. **🔋 Ultra-Low Power Consumption**: Traditional Multiply-Accumulate (MAC) operations are energy intensive. Ternary arithmetic eliminates nearly all multiplications, leading to dramatically lower power requirements—crucial for mobile and edge AI applications.
-4. **📱 Perfect for Edge and Mobile**: The extreme efficiency and tiny memory footprint of ternary networks make them ideal for deploying advanced AI models directly on smartphones, IoT devices, wearables, and microcontrollers where resources are limited.
+1. ** Massive Memory Savings**: Ternary networks can reduce model memory usage by over 95% compared to standard 32-bit floating-point models, allowing much larger models to fit on smaller devices.
+2. ** Simpler, Faster Computation**: Ternary weights mean most multiplications can be replaced with lightweight additions and subtractions. For example, a calculation like (1 × A + 0 × B + -1 × C) is reduced to just (A - C), enabling much faster matrix operations—especially in hardware.
+3. ** Ultra-Low Power Consumption**: Traditional Multiply-Accumulate (MAC) operations are energy intensive. Ternary arithmetic eliminates nearly all multiplications, leading to dramatically lower power requirements—crucial for mobile and edge AI applications.
+4. ** Perfect for Edge and Mobile**: The extreme efficiency and tiny memory footprint of ternary networks make them ideal for deploying advanced AI models directly on smartphones, IoT devices, wearables, and microcontrollers where resources are limited.
 
 
 ## How BitLab Harnesses Ternary Power
 
 BitLab is a cutting-edge framework that brings the power of **1.58-bit quantization** to PyTorch models. By reducing model weights to just 1.58 bits per parameter, BitLab delivers:
 
-- **🔥 16x memory reduction** - Deploy larger models on smaller devices
-- **⚡ Faster inference** - Optimized C++ and CUDA kernels for maximum speed  
-- **🎯 Minimal accuracy loss** - Advanced quantization techniques preserve model performance
-- **🔧 Drop-in replacement** - Seamlessly replace PyTorch layers with quantized versions
+- ** 16x memory reduction** - Deploy larger models on smaller devices
+- ** Faster inference** - Optimized C++ and CUDA kernels for maximum speed  
+- ** Minimal accuracy loss** - Advanced quantization techniques preserve model performance
+- ** Drop-in replacement** - Seamlessly replace PyTorch layers with quantized versions
 
-### 🚀 BitLab's Revolutionary Approach
+### BitLab's Revolutionary Approach
 
 BitLab makes ternary networks accessible through and brings their theoretical efficiency's into practical performance gains through a standardised API. In particular, we provide: 
 
@@ -39,15 +39,15 @@ BitLab makes ternary networks accessible through and brings their theoretical ef
 
 BitLab offers everything you need to leverage the power of ternary networks:
 
-- **🚀 Optimized Kernels**: C++ and CUDA implementations with PyTorch fallbacks for maximum performance.
-- **🎛️ Flexible Quantization**: Supports both per-tensor and per-channel quantization schemes.
-- **🧠 Smart Dispatch**: Automatically selects the best kernel based on your hardware configuration.
-- **🔌 Easy Integration**: Drop-in replacement for PyTorch layers—minimal code changes required.
-- **📊 Demonstrated Efficiency Gains**: Translates the theoretical efficiency gains of ternary networks into real-world performance improvements.
+- ** Optimized Kernels**: C++ and CUDA implementations with PyTorch fallbacks for maximum performance.
+- ** Flexible Quantization**: Supports both per-tensor and per-channel quantization schemes.
+- ** Smart Dispatch**: Automatically selects the best kernel based on your hardware configuration.
+- ** Easy Integration**: Drop-in replacement for PyTorch layers—minimal code changes required.
+- ** Demonstrated Efficiency Gains**: Translates the theoretical efficiency gains of ternary networks into real-world performance improvements.
 
 
 
-## 🚀 Quick Start
+##  Quick Start
 
 Ready to harness the power of ternary networks? Get up and running with BitLab in under 5 minutes! 
 
@@ -78,7 +78,7 @@ python build_extensions.py
 pip install -e .
 ```
 
-### ✅ Verify Installation
+###  Verify Installation
 
 ```python
 python -c "
@@ -101,10 +101,10 @@ print(f'Has C++ backend: {kernel.has_cpp_backend}')
 "
 ```
 
-🎉 **You're ready to start training ternary networks. !** Let's dive into some examples.
+**You're ready to start training ternary networks. !** Let's dive into some examples.
 
 
-## 🎯 Hello World Examples
+##  Hello World Examples
 
 Let's start with some simple examples to get you familiar with BitLab and see ternary networks in action!
 
@@ -262,15 +262,15 @@ config = BitQuantConfig(
 
 Comprehensive documentation is available in the `docs/` directory:
 
-- **[📖 Documentation Index](docs/index.md)** - Complete documentation overview
-- **[🚀 Quick Start Guide](docs/README.md)** - Get up and running in 5 minutes
-- **[🔧 Installation Guide](docs/installation.md)** - Detailed setup instructions
-- **[📚 API Reference](docs/api/)** - Complete API documentation
+- **[Documentation Index](docs/index.md)** - Complete documentation overview
+- **[Quick Start Guide](docs/README.md)** - Get up and running in 5 minutes
+- **[Installation Guide](docs/installation.md)** - Detailed setup instructions
+- **[API Reference](docs/api/)** - Complete API documentation
   - [Core API](docs/api/core.md) - Core quantization functionality
   - [Layers API](docs/api/layers.md) - Quantized layer implementations
   - [Models API](docs/api/models.md) - Pre-built quantized models
-- **[💡 Examples](docs/examples/)** - Code examples and tutorials
-- **[📊 Benchmarks](docs/benchmarks/)** - Performance results and comparisons
+- **[Examples](docs/examples/)** - Code examples and tutorials
+- **[Benchmarks](docs/benchmarks/)** - Performance results and comparisons
 
 ## 🏗️ Architecture
 
@@ -301,7 +301,7 @@ BitLab/
 
 
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Here's how to get started:
 
@@ -325,21 +325,10 @@ python build_extensions.py
 
 ## 📄 License
 
-[Add your license information here]
 
 ## 🙏 Acknowledgments
 
-[Add acknowledgments here]
 
 ---
-
-## 🎉 Ready to Get Started?
-
-You now have everything you need to start using BitLab! 
-
-- **🚀 Quick start** - Follow the installation guide above
-- **📖 Examples** - Check out the `examples/` directory for more complex use cases  
-- **🧪 Testing** - Run the test suite to verify everything works
-- **💬 Community** - Join our discussions and share your results!
 
 **Happy quantizing!** 🎯
