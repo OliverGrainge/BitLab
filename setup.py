@@ -1,4 +1,4 @@
-from setuptools import find_packages, setup
+from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension
 import os
 
@@ -13,7 +13,7 @@ if BUILD_CPP_EXTENSIONS:
         CppExtension(
             'bitcore.kernels.bindings.bitlinear_int8_pt_pt_cpp',
             [
-                'bitcore/kernels/bindings/bitlinear_int8_pt_pt.cpp',
+                'src/bitcore/kernels/bindings/bitlinear_int8_pt_pt.cpp',
             ],
             include_dirs=[],
             extra_compile_args=['-std=c++17'],
@@ -21,14 +21,6 @@ if BUILD_CPP_EXTENSIONS:
     ])
 
 setup(
-    name="bitlab",  # or "bitcore" - should match your actual package name
-    version="0.1.0",
-    packages=find_packages(),
-    install_requires=[
-        "torch",
-        # other deps
-    ],
     ext_modules=ext_modules,
     cmdclass={'build_ext': BuildExtension} if ext_modules else {},
-    python_requires='>=3.7',
 )

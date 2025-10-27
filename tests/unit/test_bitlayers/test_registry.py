@@ -6,12 +6,14 @@ from bitlayers import LAYER_REGISTRY, register_layer, BitLinear
 class TestLayerRegistry:
     """Test cases for layer registration system"""
     
+    @pytest.mark.unit
     def test_bitlinear_is_registered(self):
         """Test that BitLinear is registered in the registry"""
         assert "BitLinear" in LAYER_REGISTRY
         assert LAYER_REGISTRY["BitLinear"] == BitLinear
 
     
+    @pytest.mark.unit
     def test_registered_layer_instantiation(self):
         """Test that registered layers can be instantiated"""
         # Test BitLinear instantiation
@@ -21,6 +23,7 @@ class TestLayerRegistry:
         assert layer.out_features == 5
     
     
+    @pytest.mark.unit
     def test_registry_is_mutable(self):
         """Test that the registry can be modified"""
         original_size = len(LAYER_REGISTRY)

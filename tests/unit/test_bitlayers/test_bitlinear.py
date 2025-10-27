@@ -9,6 +9,7 @@ from bitcore.config import BitQuantConfig
 class TestBitLinear:
     """Test cases for BitLinear class"""
     
+    @pytest.mark.unit
     def test_init_basic(self):
         """Test basic initialization"""
         layer = BitLinear(in_features=10, out_features=5)
@@ -20,6 +21,7 @@ class TestBitLinear:
         assert layer.bias is not None
         assert layer.bias.shape == (5,)
     
+    @pytest.mark.unit
     def test_init_without_bias(self):
         """Test initialization without bias"""
         layer = BitLinear(in_features=10, out_features=5, bias=False)
@@ -30,6 +32,7 @@ class TestBitLinear:
         assert layer.weight.shape == (5, 10)
         assert layer.bias is None
     
+    @pytest.mark.unit
     def test_init_with_custom_quant_config(self):
         """Test initialization with custom quantization config"""
         custom_config = BitQuantConfig(
@@ -43,6 +46,7 @@ class TestBitLinear:
         assert layer.quant_config.activation_granularity == "per_channel"
     
     
+    @pytest.mark.unit
     def test_weight_initialization_kaiming_uniform(self):
         """Test Kaiming uniform weight initialization"""
         layer = BitLinear(in_features=10, out_features=5, init_method='kaiming_uniform')
@@ -53,11 +57,13 @@ class TestBitLinear:
         assert torch.all(layer.weight <= bound)
     
     
+    @pytest.mark.unit
     def test_invalid_initialization_method(self):
         """Test that invalid initialization method raises ValueError"""
         with pytest.raises(ValueError, match="Unknown initialization method"):
             BitLinear(in_features=10, out_features=5, init_method='invalid_method')
     
+    @pytest.mark.unit
     def test_quantization_params_per_tensor(self):
         """Test quantization parameter creation for per_tensor granularity"""
         config = BitQuantConfig(
@@ -79,6 +85,7 @@ class TestBitLinear:
         assert hasattr(layer, 'qweight')
         assert layer.qweight.shape == (5, 10)  # out_features, in_features
     
+    @pytest.mark.unit
     def test_quantization_params_per_channel(self):
         """Test quantization parameter creation for per_channel granularity"""
         config = BitQuantConfig(
@@ -100,6 +107,7 @@ class TestBitLinear:
         assert hasattr(layer, 'qweight')
         assert layer.qweight.shape == (5, 10)  # out_features, in_features
     
+    @pytest.mark.unit
     def test_forward_pass_training_mode(self):
         """Test forward pass in training mode"""
         layer = BitLinear(in_features=10, out_features=5)
@@ -112,6 +120,7 @@ class TestBitLinear:
         assert not torch.isnan(output).any()
         assert not torch.isinf(output).any()
     
+    @pytest.mark.unit
     def test_forward_pass_eval_mode(self):
         """Test forward pass in evaluation mode"""
         layer = BitLinear(in_features=10, out_features=5)
@@ -124,6 +133,7 @@ class TestBitLinear:
         assert not torch.isnan(output).any()
         assert not torch.isinf(output).any()
     
+    @pytest.mark.unit
     def test_forward_pass_without_bias(self):
         """Test forward pass without bias"""
         layer = BitLinear(in_features=10, out_features=5, bias=False)
@@ -136,6 +146,7 @@ class TestBitLinear:
         assert not torch.isnan(output).any()
         assert not torch.isinf(output).any()
     
+    @pytest.mark.unit
     def test_forward_pass_batch_dimensions(self):
         """Test forward pass with different batch dimensions"""
         layer = BitLinear(in_features=10, out_features=5)
@@ -151,6 +162,7 @@ class TestBitLinear:
         output_3d = layer(input_3d)
         assert output_3d.shape == (2, 3, 5)
     
+    @pytest.mark.unit
     def test_mode_switching_methods(self):
         """Test that mode switching methods are callable"""
         layer = BitLinear(in_features=10, out_features=5)
@@ -159,6 +171,7 @@ class TestBitLinear:
         layer._on_enter_training_mode()
         layer._on_enter_eval_mode()
     
+    @pytest.mark.unit
     def test_parameters_are_trainable(self):
         """Test that all parameters are trainable"""
         layer = BitLinear(in_features=10, out_features=5)
@@ -177,6 +190,7 @@ class TestBitLinear:
         assert 'qweight_scale' in buffer_names
         assert 'qweight' in buffer_names
     
+    @pytest.mark.unit
     def test_parameters_are_trainable_no_bias(self):
         """Test that parameters are trainable when bias=False"""
         layer = BitLinear(in_features=10, out_features=5, bias=False)
@@ -195,6 +209,7 @@ class TestBitLinear:
         assert 'qweight_scale' in buffer_names
         assert 'qweight' in buffer_names
 
+    @pytest.mark.unit
     def test_gradient_flow(self):
         """Test that gradients flow properly through the layer"""
         layer = BitLinear(in_features=10, out_features=5)
