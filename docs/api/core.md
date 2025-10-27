@@ -54,42 +54,70 @@ config = BitQuantConfig(
 
 ### bitlinear.forward
 
-The bitcore contains the core operators, required for 1.58bit network inference and training. Lets see an example before, in which 
+The `bitlinear.forward` function is the central operator used for both training and inference in BitLab’s quantized linear networks. It switches behavior depending on the mode: training (full precision weights, STE gradients for quantization) versus evaluation/inference (fully quantized fast-path). This API is the gateway to core 1.58-bit operations, and is directly used by both `bitlayers` and `bitmodels`.
+
+---
+
+#### Training Mode (`training=True`)
+
+During training, you provide full-precision weights and inputs. BitLab handles quantization *internally*—including straight-through estimator (STE) gradients for discrete parameters—so you can train as usual, without needing to manage quantization yourself.
 
 ```python
 from bitcore.ops import bitlinear
 
-# Training mode (full precision weights)
+# Training: Use float weights, auto-quantization, and STE gradient flow
 output = bitlinear.forward(
     x=input_tensor,
-    weight=weight_tensor,
+    weight=weight_tensor,      # full precision
     bias=bias_tensor,
     quant_config=config,
     training=True
 )
+```
 
-qweight_scale, qweight = bitlinear.prepare_weights(weight, quant_config)
+- **weight** is the full-precision trainable tensor.
+- Quantization and STE for gradients are handled inside the function.
 
-# Evaluation mode (quantized weights)
+---
+
+#### Evaluation Mode (`training=False`)
+
+For inference (or deployment), you typically first quantize weights using `prepare_weights`, then call `bitlinear.forward` with quantized weights and scaling. In this mode, BitLab automatically dispatches the most efficient low-level ternary kernel available for your configuration, maximizing performance on your hardware. These kernels leverage fast bit-packing and ternary (1.58-bit) operations, ensuring highly efficient compute during inference.
+
+You do **not** need to choose a kernel manually—BitLab selects it internally based on your `quant_config`. This automatic dispatch guarantees that all inference computations use quantized weights and are executed on the most suitable optimized backend (for example, AVX, CUDA, etc.) when available.
+
+```python
+from bitcore.ops import bitlinear
+
+# Weight quantization (done once before inference)
+qweight_scale, qweight = bitlinear.prepare_weights(weight_tensor, config)
+
+# Evaluation: Use quantized weights and scale for fast inference
 output = bitlinear.forward(
     x=input_tensor,
-    qweight_scale=scale_tensor,
-    qweight=quantized_weight_tensor,
+    qweight_scale=qweight_scale,
+    qweight=qweight,
     bias=bias_tensor,
     quant_config=config,
-    training=False
+    training=False  # Triggers efficient ternary kernel dispatch
 )
 ```
+
+- All inference computations now use quantized, ternary weights and scale.
+- The optimal kernel is selected and dispatched automatically for your configuration and hardware.
+
+---
 
 #### Parameters
 
 - **x** (`torch.Tensor`): Input tensor of shape `(N, *, in_features)`
-- **weight** (`torch.Tensor`, training only): Full precision weights
-- **qweight_scale** (`torch.Tensor`, eval only): Quantization scale factors
-- **qweight** (`torch.Tensor`, eval only): Quantized weights
-- **bias** (`torch.Tensor`, optional): Bias tensor
-- **quant_config** (`BitQuantConfig`): Quantization configuration
-- **training** (`bool`): Whether in training or evaluation mode
+- **weight** (`torch.Tensor`, required for `training=True`): Full-precision weights for training
+- **qweight_scale** (`torch.Tensor`, required for `training=False`): Quantization scale(s) for weights
+- **qweight** (`torch.Tensor`, required for `training=False`): Quantized weights (1.58-bit, typically ternary)
+- **bias** (`torch.Tensor`, optional): Optional bias to apply
+- **quant_config** (`BitQuantConfig`): Configuration detailing quantization schema
+- **training** (`bool`): Selects training (full-precision w/ STE) or evaluation (fully quantized) mode
+
 
 #### Returns
 

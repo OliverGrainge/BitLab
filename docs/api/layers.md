@@ -161,36 +161,4 @@ print(f"Memory savings: {layer.qweight.numel() * 1.58 / (layer.qweight.numel() *
 ```
 
 
-## Memory Analysis
-
-### estimate_memory_usage
-
-Estimate memory usage of a quantized layer.
-
-```python
-from bitlayers.utils import estimate_memory_usage
-
-# Estimate memory for layer
-memory_info = estimate_memory_usage(layer)
-print(f"Original: {memory_info['original']} bytes")
-print(f"Quantized: {memory_info['quantized']} bytes")
-print(f"Savings: {memory_info['savings']:.1%}")
-```
-
-### compare_layers
-
-Compare memory usage between regular and quantized layers.
-
-```python
-from bitlayers.utils import compare_layers
-import torch.nn as nn
-
-# Compare layers
-regular_layer = nn.Linear(1000, 1000)
-quantized_layer = BitLinear(1000, 1000, quant_config=config)
-
-comparison = compare_layers(regular_layer, quantized_layer)
-print(f"Memory reduction: {comparison['reduction']:.1%}")
-print(f"Speed improvement: {comparison['speedup']:.1f}x")
-```
 

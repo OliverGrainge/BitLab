@@ -19,14 +19,24 @@ class BitMLPModel(BitModelBase):
         # Build layers
         layers = []
         in_dim = config.in_channels
-        for _ in range(config.n_layers - 1):
+
+        # Input layer (full-precision)
+        layers.append(nn.Linear(in_dim, config.hidden_dim))
+        layers.append(nn.ReLU())
+        if config.dropout > 0:
+            layers.append(nn.Dropout(config.dropout))
+
+        in_dim = config.hidden_dim
+        # Middle BitLinear layers
+        for _ in range(config.n_layers - 2):
             layers.append(BitLinear(in_dim, config.hidden_dim))
             layers.append(nn.ReLU())
             if config.dropout > 0:
                 layers.append(nn.Dropout(config.dropout))
             in_dim = config.hidden_dim
 
-        layers.append(BitLinear(in_dim, config.out_channels))
+        # Output layer (full-precision)
+        layers.append(nn.Linear(in_dim, config.out_channels))
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
