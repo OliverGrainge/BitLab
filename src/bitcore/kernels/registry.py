@@ -81,10 +81,12 @@ class KernelRegistry:
         return cls._default_kernel(config)
     
     @classmethod
-    def get_kernel_by_name(cls, name: str, config: BitQuantConfig) -> BitKernelBase:
-        """Get specific kernel by name"""
+    def get_kernel_from_name(cls, name: str) -> BitKernelBase:
+        """Get specific kernel by name with automatically created matching config"""
         for entry in cls._entries:
             if entry.name == name:
+                # Create config that matches this kernel's requirements
+                config = cls._create_config_for_kernel(entry)
                 return entry.kernel_class(config)
         raise ValueError(f"Unknown kernel: {name}")
     
@@ -93,12 +95,28 @@ class KernelRegistry:
         """List all registered kernels in priority order"""
         return [e.name for e in cls._entries]
     
+
     @classmethod
-    def get_optimal_kernel(cls, config: BitQuantConfig) -> BitKernelBase:
-        """Get the best kernel for the given configuration with proper error handling"""
-        try:
-            return cls.get_kernel_from_config(config)
-        except Exception as e:
-            logger.error(f"Error getting kernel for config {config}: {e}")
-            logger.warning("Falling back to reference kernel")
-            return cls._default_kernel(config)
+    def _create_config_for_kernel(cls, entry: KernelEntry) -> BitQuantConfig:
+        """Create a config that matches the kernel's registered requirements"""
+        # Extract the matcher function to understand what config this kernel expects
+        # We need to reverse-engineer the config from the matcher
+        
+        # Try different config combinations to find one that matches
+        config_options = [
+            BitQuantConfig(activation_dtype="int8", activation_granularity="per_tensor", weight_granularity="per_tensor"),
+            BitQuantConfig(activation_dtype="int8", activation_granularity="per_channel", weight_granularity="per_tensor"),
+            BitQuantConfig(activation_dtype="int8", activation_granularity="per_tensor", weight_granularity="per_channel"),
+            BitQuantConfig(activation_dtype="int8", activation_granularity="per_channel", weight_granularity="per_channel"),
+            BitQuantConfig(activation_dtype="float32", activation_granularity="per_tensor", weight_granularity="per_tensor"),
+            BitQuantConfig(activation_dtype="float32", activation_granularity="per_channel", weight_granularity="per_tensor"),
+            BitQuantConfig(activation_dtype="float32", activation_granularity="per_tensor", weight_granularity="per_channel"),
+            BitQuantConfig(activation_dtype="float32", activation_granularity="per_channel", weight_granularity="per_channel"),
+        ]
+        
+        for config in config_options:
+            if entry.matcher(config):
+                return config
+        
+        # If no match found, return default config
+        return BitQuantConfig()

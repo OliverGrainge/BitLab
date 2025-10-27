@@ -50,6 +50,10 @@ class BitLayerBase(nn.Module):
         """Called when entering evaluation mode - override in subclasses"""
         raise NotImplementedError("Subclasses must implement _on_enter_eval_mode")
 
+    def _compute_reg(self): 
+        """Compute regularization loss"""
+        return 0.0
+
     def deploy(self):
             """
             Permanently quantize the layer and remove latent weights.
