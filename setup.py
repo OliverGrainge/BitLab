@@ -3,50 +3,52 @@
 Setup script for BitLab package installation.
 """
 
-import subprocess
-import sys
-import os
+import torch
+from torch.utils.cpp_extension import CppExtension, BuildExtension
+from setuptools import setup, find_packages
 
-def run_command(command, description):
-    """Run a command and handle errors."""
-    print(f"Running: {description}")
-    try:
-        result = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
-        print(f"✓ {description} completed successfully")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"✗ {description} failed:")
-        print(f"  Error: {e.stderr}")
-        return False
-
-def main():
-    """Main setup function."""
-    print("BitLab Package Setup")
-    print("=" * 50)
+def get_extensions():
+    """Get C++ extensions for CPU kernels."""
+    extensions = []
     
-    # Check if we're in the right directory
-    if not os.path.exists("pyproject.toml"):
-        print("Error: pyproject.toml not found. Please run this script from the BitLab root directory.")
-        sys.exit(1)
+    extensions.append(
+        CppExtension(
+            name='bitlab.bnn.functional.kernels.cpu.bitlinear_cpu',
+            sources=['src/bitlab/bnn/functional/kernels/cpu/bitlinear_kernel.cpp'],
+            extra_compile_args=['-O3']
+        )
+    )
     
-    # Install the package in development mode
-    if not run_command("pip install -e .", "Installing BitLab package"):
-        sys.exit(1)
-    
-    # Install development dependencies
-    if not run_command("pip install -e .[dev]", "Installing development dependencies"):
-        print("Warning: Development dependencies installation failed, but core package is installed.")
-    
-    # Run tests
-    if not run_command("python -m pytest tests/ -v", "Running tests"):
-        print("Warning: Tests failed, but package is installed.")
-    
-    print("\n" + "=" * 50)
-    print("Setup completed!")
-    print("\nTo verify installation, run:")
-    print("  python -c \"import bitlab; print(f'BitLab version: {bitlab.__version__}')\"")
-    print("\nTo run the example:")
-    print("  python examples/basic/mlp.py")
+    return extensions
 
 if __name__ == "__main__":
-    main()
+    setup(
+        name="bitlab",
+        version="0.1.0",
+        description="A PyTorch library for binary neural networks with efficient quantization",
+        author="Your Name",
+        author_email="your.email@example.com",
+        packages=find_packages(where="src"),
+        package_dir={"": "src"},
+        ext_modules=get_extensions(),
+        cmdclass={'build_ext': BuildExtension},
+        python_requires=">=3.8",
+        install_requires=[
+            "torch>=1.9.0",
+            "torchvision>=0.10.0",
+            "numpy>=1.19.0",
+        ],
+        extras_require={
+            "dev": [
+                "pytest>=6.0",
+                "pytest-cov",
+                "black",
+                "flake8",
+                "mypy",
+            ],
+            "docs": [
+                "sphinx",
+                "sphinx-rtd-theme",
+            ],
+        },
+    )
