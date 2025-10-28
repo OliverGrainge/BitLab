@@ -1,0 +1,20 @@
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+
+# Include example files
+recursive-include examples *.py
+
+# Include data files if needed
+recursive-include data *.gz *.ubyte
+
+# Exclude cache and build files
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude .DS_Store
+global-exclude .git*
+global-exclude *.egg-info
+global-exclude build
+global-exclude dist
