@@ -7,7 +7,7 @@ import torch.nn.functional as F
 # Make sure we can import from src
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
-from bitlab.bnn.functional import bitlinear, bitlinear_pack_weights
+from bitlab.bnn.functional import bitlinear, bitlinear_prepare_weights
 from bitlab.bnn.functional.bitlinear import KERNELS_AVAILABLE
 
 def time_it(fn, runs=100, warmup=10):
@@ -26,7 +26,6 @@ def main():
     shapes = [
         (32, 128, 64),
         (64, 256, 128),
-        (128, 512, 256),
     ]
 
     runs = 100
@@ -41,13 +40,13 @@ def main():
         b = torch.randn(out_features)
 
         # Pack once for bitlinear
-        pw, pb = bitlinear_pack_weights(w, b)
+        pw, s = bitlinear_prepare_weights(w)
 
         # Torch linear (functional)
         torch_mean_s = time_it(lambda: F.linear(x, w, b), runs=runs, warmup=warmup)
 
         # Bitlinear
-        bit_mean_s = time_it(lambda: bitlinear(x, pw, pb), runs=runs, warmup=warmup)
+        bit_mean_s = time_it(lambda: bitlinear(x, pw, s, b), runs=runs, warmup=warmup)
 
         torch_ms = torch_mean_s * 1000.0
         bit_ms = bit_mean_s * 1000.0
