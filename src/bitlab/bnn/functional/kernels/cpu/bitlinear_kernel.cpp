@@ -83,6 +83,11 @@ std::tuple<torch::Tensor, double> prepare_weights_cpu(
 //   
 //   Strategy: Unpack weights once to float32, then use ATen's optimized BLAS
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// bitlinear_cpu_forward (tiled):
+//   Dequantize weights in O-tiles and immediately GEMM each tile.
+//   out[:, o0:o1] = scale * (input @ W_tile^T)  (+ bias later)
+// ----------------------------------------------------------------------------
 torch::Tensor bitlinear_cpu_forward(
     torch::Tensor input,
     torch::Tensor packed_weights,
@@ -93,47 +98,79 @@ torch::Tensor bitlinear_cpu_forward(
     TORCH_CHECK(input.dtype() == torch::kFloat32, "input must be float32");
     TORCH_CHECK(input.dim() == 2, "input must be [B, I]");
     TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
-    
+
     TORCH_CHECK(packed_weights.device().is_cpu(), "packed_weights must be on CPU");
     TORCH_CHECK(packed_weights.dtype() == torch::kUInt8, "packed_weights must be uint8");
     TORCH_CHECK(packed_weights.dim() == 2, "packed_weights must be [O, ceil(I/4)]");
     TORCH_CHECK(packed_weights.is_contiguous(), "packed_weights must be contiguous");
-    
-    const int64_t B = input.size(0);
-    const int64_t I = input.size(1);
-    const int64_t O = packed_weights.size(0);
+
+    const int64_t B  = input.size(0);
+    const int64_t I  = input.size(1);
+    const int64_t O  = packed_weights.size(0);
     const int64_t I4 = (I + 3) / 4;
-    
     TORCH_CHECK(packed_weights.size(1) == I4, "packed column mismatch: expected ceil(I/4)");
-    
-    // Unpack weights once to float32 [O, I]
-    auto unpacked_weights = torch::empty({O, I}, input.options());
-    
-    auto p = packed_weights.accessor<uint8_t, 2>();
-    auto w = unpacked_weights.accessor<float, 2>();
-    
-    // Unpack all weights
-    for (int64_t o = 0; o < O; ++o) {
-        int64_t i_idx = 0;
-        for (int64_t c = 0; c < I4; ++c) {
-            const uint8_t byte = p[o][c];
-            
-            // Unpack 4 weights from this byte
-            for (int off = 0; off < 4 && i_idx < I; ++off, ++i_idx) {
-                const uint8_t code = (byte >> (2*off)) & 0x3u;
-                w[o][i_idx] = static_cast<float>(dec2(code));
+
+    // Output [B, O]
+    auto out = torch::empty({B, O}, input.options());
+
+    // Choose an O tile that keeps W_tile (~O_TILE*I floats) in LLC.
+    // 512 is a reasonable default; tune per machine.
+    const int64_t O_TILE = 512;
+
+    // Accessors
+    auto pw = packed_weights.accessor<uint8_t, 2>();
+
+    // Temporary fp32 buffer for one W tile: [O_t, I] (contiguous, row-major)
+    // We reuse a single buffer sized for O_TILE; the last tile may be smaller.
+    auto wtile = torch::empty({O_TILE, I}, input.options());
+    auto wbuf  = wtile.accessor<float, 2>();
+
+    // Process output rows in tiles
+    for (int64_t o0 = 0; o0 < O; o0 += O_TILE) {
+        const int64_t O_t = std::min<int64_t>(O_TILE, O - o0);
+
+        // Dequantize packed_weights[o0:o0+O_t, :] -> wtile[0:O_t, :]
+        // Parallelize over rows; inner loop is tight and cache-friendly.
+        #ifdef HAS_OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (int64_t r = 0; r < O_t; ++r) {
+            const uint8_t* __restrict prow = &pw[o0 + r][0];
+            float* __restrict dst = &wbuf[r][0];
+
+            int64_t i = 0;
+            for (int64_t c = 0; c < I4; ++c) {
+                const uint8_t byte = prow[c];
+
+                // Extract four 2-bit codes
+                // code0: bits [1:0], code1: [3:2], code2: [5:4], code3: [7:6]
+                uint8_t code0 = (byte >> 0) & 0x3u;
+                uint8_t code1 = (byte >> 2) & 0x3u;
+                uint8_t code2 = (byte >> 4) & 0x3u;
+                uint8_t code3 = (byte >> 6) & 0x3u;
+
+                // Map codes -> {-1,0,+1}
+                // enc: 0->0, 1->+1, 2->-1, 3->0
+                if (i < I) { dst[i++] = (code0 == 1 ? +1.f : (code0 == 2 ? -1.f : 0.f)); }
+                if (i < I) { dst[i++] = (code1 == 1 ? +1.f : (code1 == 2 ? -1.f : 0.f)); }
+                if (i < I) { dst[i++] = (code2 == 1 ? +1.f : (code2 == 2 ? -1.f : 0.f)); }
+                if (i < I) { dst[i++] = (code3 == 1 ? +1.f : (code3 == 2 ? -1.f : 0.f)); }
             }
         }
+
+        // Compute out[:, o0:o0+O_t] = scale * (input @ (wtile[0:O_t, :])^T)
+        // Use addmm with beta=0 and alpha=scale to fuse scaling.
+        auto Wt = wtile.narrow(0, 0, O_t).t().contiguous(); // [I, O_t]
+        auto out_block = out.narrow(1, o0, O_t);
+        at::addmm_out(/*out=*/out_block,
+                      /*self=*/out_block,  // ignored since beta=0
+                      /*mat1=*/input,      // [B, I]
+                      /*mat2=*/Wt,         // [I, O_t]
+                      /*beta=*/0.0f,
+                      /*alpha=*/static_cast<float>(scale));
     }
-    
-    // Use ATen's optimized matrix multiplication: out = input @ unpacked_weights.T
-    // This calls into highly optimized BLAS implementations (MKL, OpenBLAS, Accelerate)
-    auto out = at::matmul(input, unpacked_weights.t());
-    
-    // Apply scale
-    out.mul_(static_cast<float>(scale));
-    
-    // Add bias if provided
+
+    // Add bias if provided (broadcast over batch)
     if (bias_opt.has_value() && bias_opt->defined()) {
         torch::Tensor bias = *bias_opt;
         TORCH_CHECK(bias.device().is_cpu(), "bias must be on CPU");
@@ -141,7 +178,7 @@ torch::Tensor bitlinear_cpu_forward(
         TORCH_CHECK(bias.dim() == 1 && bias.size(0) == O, "bias must be [O]");
         out.add_(bias);
     }
-    
+
     return out;
 }
 
