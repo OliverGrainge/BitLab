@@ -23,7 +23,6 @@ class Quantize(Function):
     @staticmethod
     def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
 
-        # Per-tensor weight abs-max quantization-dequantization
         qws, qw = quantize_weight(w, eps) 
         qxs, qx = quantize_activation(x, eps)
 
@@ -40,8 +39,6 @@ class Quantize(Function):
         grad_w = grad_output_dqw
         grad_eps = None
         return grad_x, grad_w, grad_eps
-
-
 
 
 class BitQuantizer: 
