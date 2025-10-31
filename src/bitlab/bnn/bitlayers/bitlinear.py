@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional
 
-from ..module import Module
-from ...bitquantizer import BitQuantizer
-from .. import functional as BF 
+from bitlab.bnn import Module
+from bitlab.bitquantizer import BitQuantizer
+from bitlab.bnn.functional import bitlinear 
 
 class BitLinear(Module):
     """
@@ -51,19 +51,21 @@ class BitLinear(Module):
         3. Switching to optimized forward pass
         """
         # Quantize and pack weights for deployment
-        qweight, qbias = BF.bitlinear_pack_weights(self.weight, self.bias)
+        qs, qw = bitlinear.prepare_weights(self.weight)
+        bias_data = self.bias.data if self.bias is not None else None
+        del self.bias, self.weight
         
         # Replace parameters with quantized buffers
-        del self.weight, self.bias
-        self.register_buffer('qweight', qweight)
-        self.register_buffer('qbias', qbias)
-        
+        self.register_buffer('qws', qs)
+        self.register_buffer('qw', qw)
+        self.register_buffer('bias', bias_data)
+
         # Switch to optimized forward pass
         self.forward = self._deploy_forward 
 
     def _deploy_forward(self, x: torch.Tensor) -> torch.Tensor:
-        return BF.bitlinear(x, self.qweight, self.qbias)
+        return bitlinear(x, self.qws, self.qw, self.bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x, w = self.quantizer(x, self.weight)
-        return F.linear(x, w, self.bias) 
+        dqx, dqw = self.quantizer(x, self.weight)
+        return F.linear(dqx, dqw, self.bias) 

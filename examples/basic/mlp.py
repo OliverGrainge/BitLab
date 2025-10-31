@@ -6,6 +6,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader 
 from torch import optim 
+import torch.nn.functional as F
 
 
 class MLP(bnn.Module): 

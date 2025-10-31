@@ -2,15 +2,144 @@
 #include <ATen/ATen.h>
 #include <cmath>
 #include <tuple>
+#include <algorithm>
 
 #if !defined(DISABLE_OPENMP) && defined(_OPENMP)
     #include <omp.h>
     #define HAS_OPENMP
 #endif
 
+// SIMD headers for vectorized operations
+#ifdef __AVX2__
+    #include <immintrin.h>
+    #define HAS_AVX2
+#endif
+
+#ifdef __SSE4_1__
+    #include <smmintrin.h>
+    #define HAS_SSE4_1
+#endif
+
 // 2-bit encoding helpers for {-1,0,+1}
 static inline uint8_t enc2(int v) { return v==0 ? 0u : (v>0 ? 1u : 2u); }
 static inline int8_t  dec2(uint8_t c){ return c==1 ? +1 : (c==2 ? -1 : 0); }
+
+// Lookup table for fast code-to-float conversion (eliminates branches)
+static const float CODE_TO_FLOAT[4] = {0.0f, +1.0f, -1.0f, 0.0f};
+
+// Vectorized unpacking functions
+#ifdef HAS_AVX2
+// AVX2 implementation for unpacking 4 bytes (16 weights) at once
+static inline void unpack_4bytes_avx2(const uint8_t* src, float* dst, int64_t remaining) {
+    // Load 4 bytes
+    __m128i bytes = _mm_loadu_si128((__m128i*)src);
+    
+    // Extract individual bytes and expand to 32-bit
+    __m256i expanded = _mm256_cvtepu8_epi32(bytes);
+    
+    // Create masks for bit extraction
+    __m256i mask0 = _mm256_set1_epi32(0x3);      // 0b11
+    __m256i mask1 = _mm256_set1_epi32(0xC);      // 0b1100
+    __m256i mask2 = _mm256_set1_epi32(0x30);     // 0b110000
+    __m256i mask3 = _mm256_set1_epi32(0xC0);     // 0b11000000
+    
+    // Extract 2-bit codes
+    __m256i codes0 = _mm256_and_si256(expanded, mask0);
+    __m256i codes1 = _mm256_and_si256(_mm256_srli_epi32(expanded, 2), mask0);
+    __m256i codes2 = _mm256_and_si256(_mm256_srli_epi32(expanded, 4), mask0);
+    __m256i codes3 = _mm256_and_si256(_mm256_srli_epi32(expanded, 6), mask0);
+    
+    // Convert to float using lookup table
+    __m256 floats0 = _mm256_i32gather_ps(CODE_TO_FLOAT, codes0, 4);
+    __m256 floats1 = _mm256_i32gather_ps(CODE_TO_FLOAT, codes1, 4);
+    __m256 floats2 = _mm256_i32gather_ps(CODE_TO_FLOAT, codes2, 4);
+    __m256 floats3 = _mm256_i32gather_ps(CODE_TO_FLOAT, codes3, 4);
+    
+    // Store results (only up to remaining elements)
+    int64_t store_count = std::min(static_cast<int64_t>(16), remaining);
+    for (int64_t i = 0; i < store_count; ++i) {
+        dst[i] = ((float*)&floats0)[i];
+    }
+    if (store_count > 4) {
+        for (int64_t i = 0; i < std::min(static_cast<int64_t>(4), store_count - 4); ++i) {
+            dst[4 + i] = ((float*)&floats1)[i];
+        }
+    }
+    if (store_count > 8) {
+        for (int64_t i = 0; i < std::min(static_cast<int64_t>(4), store_count - 8); ++i) {
+            dst[8 + i] = ((float*)&floats2)[i];
+        }
+    }
+    if (store_count > 12) {
+        for (int64_t i = 0; i < std::min(static_cast<int64_t>(4), store_count - 12); ++i) {
+            dst[12 + i] = ((float*)&floats3)[i];
+        }
+    }
+}
+#endif
+
+#ifdef HAS_SSE4_1
+// SSE4.1 implementation for unpacking 2 bytes (8 weights) at once
+static inline void unpack_2bytes_sse4(const uint8_t* src, float* dst, int64_t remaining) {
+    // Load 2 bytes
+    __m128i bytes = _mm_loadl_epi64((__m128i*)src);
+    
+    // Expand to 32-bit
+    __m128i expanded = _mm_cvtepu8_epi32(bytes);
+    
+    // Extract 2-bit codes
+    __m128i codes0 = _mm_and_si128(expanded, _mm_set1_epi32(0x3));
+    __m128i codes1 = _mm_and_si128(_mm_srli_epi32(expanded, 2), _mm_set1_epi32(0x3));
+    __m128i codes2 = _mm_and_si128(_mm_srli_epi32(expanded, 4), _mm_set1_epi32(0x3));
+    __m128i codes3 = _mm_and_si128(_mm_srli_epi32(expanded, 6), _mm_set1_epi32(0x3));
+    
+    // Convert to float using lookup table
+    __m128 floats0 = _mm_i32gather_ps(CODE_TO_FLOAT, codes0, 4);
+    __m128 floats1 = _mm_i32gather_ps(CODE_TO_FLOAT, codes1, 4);
+    __m128 floats2 = _mm_i32gather_ps(CODE_TO_FLOAT, codes2, 4);
+    __m128 floats3 = _mm_i32gather_ps(CODE_TO_FLOAT, codes3, 4);
+    
+    // Store results
+    int64_t store_count = std::min(static_cast<int64_t>(8), remaining);
+    for (int64_t i = 0; i < store_count; ++i) {
+        dst[i] = ((float*)&floats0)[i];
+    }
+    if (store_count > 4) {
+        for (int64_t i = 0; i < store_count - 4; ++i) {
+            dst[4 + i] = ((float*)&floats1)[i];
+        }
+    }
+    if (store_count > 8) {
+        for (int64_t i = 0; i < store_count - 8; ++i) {
+            dst[8 + i] = ((float*)&floats2)[i];
+        }
+    }
+    if (store_count > 12) {
+        for (int64_t i = 0; i < store_count - 12; ++i) {
+            dst[12 + i] = ((float*)&floats3)[i];
+        }
+    }
+}
+#endif
+
+// Fallback scalar implementation
+static inline void unpack_bytes_scalar(const uint8_t* src, float* dst, int64_t count) {
+    for (int64_t i = 0; i < count; ++i) {
+        const uint8_t byte = src[i];
+        
+        // Extract four 2-bit codes
+        uint8_t code0 = (byte >> 0) & 0x3u;
+        uint8_t code1 = (byte >> 2) & 0x3u;
+        uint8_t code2 = (byte >> 4) & 0x3u;
+        uint8_t code3 = (byte >> 6) & 0x3u;
+        
+        // Use lookup table for fast conversion
+        dst[i*4 + 0] = CODE_TO_FLOAT[code0];
+        dst[i*4 + 1] = CODE_TO_FLOAT[code1];
+        dst[i*4 + 2] = CODE_TO_FLOAT[code2];
+        dst[i*4 + 3] = CODE_TO_FLOAT[code3];
+    }
+}
 
 // ----------------------------------------------------------------------------
 // prepare_weights_cpu:
@@ -74,6 +203,56 @@ std::tuple<torch::Tensor, double> prepare_weights_cpu(
 }
 
 // ----------------------------------------------------------------------------
+// Adaptive tiling function
+//   Chooses optimal tile sizes based on problem dimensions and cache size
+// ----------------------------------------------------------------------------
+std::pair<int64_t, int64_t> choose_tile_sizes(int64_t B, int64_t I, int64_t O) {
+    // Estimate cache size (L3 cache is typically 8-32MB on modern CPUs)
+    // We'll be conservative and assume 8MB L3 cache
+    const int64_t ESTIMATED_L3_CACHE_BYTES = 8 * 1024 * 1024;
+    const int64_t FLOAT_SIZE = sizeof(float);
+    
+    // Calculate memory footprint for different tile sizes
+    auto calculate_memory_footprint = [&](int64_t o_tile, int64_t i_tile) -> int64_t {
+        // Input tile: B * i_tile * FLOAT_SIZE
+        // Weight tile: o_tile * i_tile * FLOAT_SIZE  
+        // Output tile: B * o_tile * FLOAT_SIZE
+        return (B * i_tile + o_tile * i_tile + B * o_tile) * FLOAT_SIZE;
+    };
+    
+    // Start with reasonable defaults
+    int64_t o_tile = std::min(static_cast<int64_t>(512), O);
+    int64_t i_tile = std::min(static_cast<int64_t>(256), I);
+    
+    // Adjust based on problem size and cache constraints
+    if (B <= 32) {
+        // Small batch: can use larger tiles
+        o_tile = std::min(static_cast<int64_t>(1024), O);
+        i_tile = std::min(static_cast<int64_t>(512), I);
+    } else if (B >= 256) {
+        // Large batch: use smaller tiles to fit in cache
+        o_tile = std::min(static_cast<int64_t>(256), O);
+        i_tile = std::min(static_cast<int64_t>(128), I);
+    }
+    
+    // Ensure we don't exceed cache capacity
+    while (calculate_memory_footprint(o_tile, i_tile) > ESTIMATED_L3_CACHE_BYTES / 2 && 
+           (o_tile > 64 || i_tile > 64)) {
+        if (o_tile > i_tile) {
+            o_tile = std::max(static_cast<int64_t>(64), o_tile / 2);
+        } else {
+            i_tile = std::max(static_cast<int64_t>(64), i_tile / 2);
+        }
+    }
+    
+    // Ensure minimum tile sizes for efficiency
+    o_tile = std::max(static_cast<int64_t>(64), o_tile);
+    i_tile = std::max(static_cast<int64_t>(64), i_tile);
+    
+    return {o_tile, i_tile};
+}
+
+// ----------------------------------------------------------------------------
 // bitlinear_cpu_forward:
 //   Input:  input [B,I] float32
 //           packed_weights [O, ceil(I/4)] uint8
@@ -113,9 +292,8 @@ torch::Tensor bitlinear_cpu_forward(
     // Output [B, O]
     auto out = torch::empty({B, O}, input.options());
 
-    // Choose an O tile that keeps W_tile (~O_TILE*I floats) in LLC.
-    // 512 is a reasonable default; tune per machine.
-    const int64_t O_TILE = 512;
+    // Choose adaptive tile sizes based on problem dimensions and cache size
+    auto [O_TILE, I_TILE] = choose_tile_sizes(B, I, O);
 
     // Accessors
     auto pw = packed_weights.accessor<uint8_t, 2>();
@@ -130,31 +308,56 @@ torch::Tensor bitlinear_cpu_forward(
         const int64_t O_t = std::min<int64_t>(O_TILE, O - o0);
 
         // Dequantize packed_weights[o0:o0+O_t, :] -> wtile[0:O_t, :]
-        // Parallelize over rows; inner loop is tight and cache-friendly.
+        // Parallelize over rows; inner loop uses vectorized unpacking.
         #ifdef HAS_OPENMP
         #pragma omp parallel for schedule(static)
         #endif
         for (int64_t r = 0; r < O_t; ++r) {
             const uint8_t* __restrict prow = &pw[o0 + r][0];
             float* __restrict dst = &wbuf[r][0];
+            
+            // Prefetch next row for better cache utilization
+            if (r + 1 < O_t) {
+                __builtin_prefetch(&pw[o0 + r + 1][0], 0, 3); // Read, high temporal locality
+            }
 
             int64_t i = 0;
-            for (int64_t c = 0; c < I4; ++c) {
+            int64_t c = 0;
+            
+            // Vectorized unpacking for as many bytes as possible
+            #ifdef HAS_AVX2
+            // Process 4 bytes (16 weights) at a time with AVX2
+            while (c + 4 <= I4 && i + 16 <= I) {
+                unpack_4bytes_avx2(&prow[c], &dst[i], I - i);
+                c += 4;
+                i += 16;
+            }
+            #elif defined(HAS_SSE4_1)
+            // Process 2 bytes (8 weights) at a time with SSE4.1
+            while (c + 2 <= I4 && i + 8 <= I) {
+                unpack_2bytes_sse4(&prow[c], &dst[i], I - i);
+                c += 2;
+                i += 8;
+            }
+            #endif
+            
+            // Fallback to scalar for remaining bytes
+            while (c < I4 && i < I) {
                 const uint8_t byte = prow[c];
-
+                
                 // Extract four 2-bit codes
-                // code0: bits [1:0], code1: [3:2], code2: [5:4], code3: [7:6]
                 uint8_t code0 = (byte >> 0) & 0x3u;
                 uint8_t code1 = (byte >> 2) & 0x3u;
                 uint8_t code2 = (byte >> 4) & 0x3u;
                 uint8_t code3 = (byte >> 6) & 0x3u;
 
-                // Map codes -> {-1,0,+1}
-                // enc: 0->0, 1->+1, 2->-1, 3->0
-                if (i < I) { dst[i++] = (code0 == 1 ? +1.f : (code0 == 2 ? -1.f : 0.f)); }
-                if (i < I) { dst[i++] = (code1 == 1 ? +1.f : (code1 == 2 ? -1.f : 0.f)); }
-                if (i < I) { dst[i++] = (code2 == 1 ? +1.f : (code2 == 2 ? -1.f : 0.f)); }
-                if (i < I) { dst[i++] = (code3 == 1 ? +1.f : (code3 == 2 ? -1.f : 0.f)); }
+                // Use lookup table for fast conversion
+                if (i < I) { dst[i++] = CODE_TO_FLOAT[code0]; }
+                if (i < I) { dst[i++] = CODE_TO_FLOAT[code1]; }
+                if (i < I) { dst[i++] = CODE_TO_FLOAT[code2]; }
+                if (i < I) { dst[i++] = CODE_TO_FLOAT[code3]; }
+                
+                c++;
             }
         }
 
