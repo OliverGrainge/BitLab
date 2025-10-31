@@ -24,11 +24,11 @@ class _BitLinearFunctional:
         qws: torch.Tensor,
         qw: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
-        eps: float = 1e-6
+        eps: float = 1e-6,
     ) -> torch.Tensor:
         dqweight = qws * qw
         qxs, qx = quantize_activation(x, eps)
-        dqx = qxs * qx 
+        dqx = qxs * qx
         return F.linear(dqx, dqweight, bias)
 
 
