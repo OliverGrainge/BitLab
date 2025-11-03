@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import WandbLogger
 
 from bitlab.bitmodels import BitUNetConfig, BitUNetModel
 from bitlab.bittrainer import BitDDPMTrainer
@@ -108,10 +108,10 @@ def main(cli_args: list[str] | None = None) -> None:
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
-    logger = TensorBoardLogger(
-        save_dir=str(output_dir / "logs"),
+    logger = WandbLogger(
+        project="bitddpm_unet",
         name="bitddpm_unet",
-        default_hp_metric=False,
+        save_dir=str(output_dir / "logs"),
     )
 
     trainer_kwargs = dict(
