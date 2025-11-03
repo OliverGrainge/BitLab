@@ -145,3 +145,7 @@ Thumbs.db
 *.jpg 
 *.parquet 
 *.csv
+
+# folders 
+checkpoints/ 
+logs/ 

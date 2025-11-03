@@ -407,10 +407,10 @@ class BitDDPMTrainer(pl.LightningModule):
         
         model.eval()
         
-        # Create time steps for DDIM
+        # Create time steps for DDIM - uniformly spaced, including timestep 0
         c = self.num_timesteps // num_steps
-        ddim_timesteps = torch.arange(0, self.num_timesteps, c, device=self.device)
-        ddim_timesteps_prev = torch.cat([torch.tensor([0], device=self.device), ddim_timesteps[:-1]])
+        ddim_timesteps = torch.arange(num_steps, device=self.device) * c
+        ddim_timesteps_prev = torch.cat([torch.tensor([-1], device=self.device), ddim_timesteps[:-1]])
         
         # Start from random noise
         x = torch.randn(batch_size, self.in_channels, self.image_size, self.image_size, device=self.device)
@@ -432,7 +432,7 @@ class BitDDPMTrainer(pl.LightningModule):
             
             # Get alpha values
             alpha_t = self.alphas_cumprod[t]
-            alpha_t_prev = self.alphas_cumprod[t_prev] if t_prev >= 0 else torch.tensor(1.0)
+            alpha_t_prev = self.alphas_cumprod[t_prev] if t_prev >= 0 else torch.tensor(1.0, device=self.device)
             
             # Compute sigma
             sigma_t = eta * torch.sqrt((1 - alpha_t_prev) / (1 - alpha_t) * (1 - alpha_t / alpha_t_prev))
@@ -457,27 +457,63 @@ class BitDDPMTrainer(pl.LightningModule):
     
     def on_validation_epoch_end(self):
         """Generate and log sample images at the end of validation."""
-        if self.global_step % self.sample_every_n_steps == 0:
-            samples = self.sample_ddim(
-                batch_size=self.num_samples,
-                num_steps=self.num_sample_steps,
-                use_ema=self.use_ema
-            )
-            
-            # Normalize to [0, 1] for visualization
-            samples = (samples + 1.0) / 2.0
-            samples = torch.clamp(samples, 0.0, 1.0)
-            
-            # Create grid
-            grid = torchvision.utils.make_grid(samples, nrow=4, normalize=False)
-            
-            # Log to tensorboard
-            if self.logger is not None:
-                self.logger.experiment.add_image(
-                    "samples",
-                    grid,
-                    global_step=self.global_step
-                )
+        # Generate samples at the end of every validation epoch
+        samples = self.sample_ddim(
+            batch_size=self.num_samples,
+            num_steps=self.num_sample_steps,
+            use_ema=self.use_ema
+        )
+        
+        # Compute statistics on raw samples (before normalization) for mode collapse detection
+        # These metrics help detect if the model is collapsing to similar outputs
+        
+        # Per-sample statistics (averaged across batch)
+        sample_means = samples.mean(dim=[1, 2, 3])  # [B]
+        sample_stds = samples.std(dim=[1, 2, 3])    # [B]
+        
+        # Average statistics across batch
+        avg_sample_mean = sample_means.mean().item()
+        avg_sample_std = sample_stds.mean().item()
+        
+        # Inter-sample diversity: variance across different samples
+        # Compute pixel-wise variance across the batch dimension
+        inter_sample_variance = samples.var(dim=0).mean().item()  # Average variance across spatial dims and channels
+        
+        # Overall statistics across all pixels in all samples
+        global_mean = samples.mean().item()
+        global_std = samples.std().item()
+        
+        # Log mode collapse detection metrics
+        self.log("samples/mean", avg_sample_mean, sync_dist=True)
+        self.log("samples/std", avg_sample_std, sync_dist=True)
+        self.log("samples/inter_sample_variance", inter_sample_variance, sync_dist=True)
+        self.log("samples/global_mean", global_mean, sync_dist=True)
+        self.log("samples/global_std", global_std, sync_dist=True)
+        
+        # Normalize to [0, 1] for visualization
+        samples = (samples + 1.0) / 2.0
+        samples = torch.clamp(samples, 0.0, 1.0)
+        
+        # Create grid
+        grid = torchvision.utils.make_grid(samples, nrow=4, normalize=False)
+        
+        # Log images if logger is available
+        if self.logger is not None:
+            try:
+                if hasattr(self.logger.experiment, 'add_image'):
+                    # TensorBoard
+                    self.logger.experiment.add_image(
+                        "samples", grid, global_step=self.global_step
+                    )
+                else:
+                    # WandB - import only if needed
+                    import wandb  # Fast: cached after first call
+                    self.logger.experiment.log({
+                        "samples": wandb.Image(grid),
+                        "global_step": self.global_step
+                    })
+            except (AttributeError, ImportError) as e:
+                print(f"Warning: Could not log images - {type(e).__name__}: {e}")
     
     def configure_optimizers(self):
         """Configure optimizer and learning rate scheduler."""
@@ -517,4 +553,3 @@ class BitDDPMTrainer(pl.LightningModule):
                 "frequency": 1
             }
         }
-

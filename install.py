@@ -35,8 +35,8 @@ def main():
         )
         sys.exit(1)
 
-    # Install the package in development mode (this will build kernels automatically)
-    if not run_command("pip install -e .", "Installing BitLab package with kernels"):
+    # Install the package in development mode
+    if not run_command("pip install -e .", "Installing BitLab package"):
         sys.exit(1)
 
     # Install development dependencies

@@ -17,7 +17,6 @@ from datamodule import LSUNBedroomsDataModule
 
 def parse_args(cli_args: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a BitUNet diffusion model on LSUN Bedrooms")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/bitddpm"), help="Directory for checkpoints and logs")
     parser.add_argument("--max-steps", type=int, default=-1, help="Limit on training steps (-1 to disable)")
     parser.add_argument("--accelerator", type=str, default="auto", help="Lightning accelerator setting (e.g. 'gpu', 'cpu', 'auto')")
     parser.add_argument("--devices", type=str, default="auto", help="Devices to use (e.g. '1', 'auto', '0,1')")
@@ -57,8 +56,12 @@ def main(cli_args: list[str] | None = None) -> None:
 
     pl.seed_everything(args.seed, workers=True)
 
-    output_dir = args.output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Set up output directories in the current working directory
+    output_dir = Path.cwd()
+    checkpoint_dir = output_dir / "checkpoints"
+    log_dir = output_dir / "logs"
+    checkpoint_dir.mkdir(exist_ok=True)
+    log_dir.mkdir(exist_ok=True)
 
     datamodule = LSUNBedroomsDataModule(
         train_batch_size=args.train_batch_size,
@@ -97,7 +100,7 @@ def main(cli_args: list[str] | None = None) -> None:
     )
 
     checkpoint_callback = ModelCheckpoint(
-        dirpath=output_dir / "checkpoints",
+        dirpath=str(checkpoint_dir),
         filename="bitddpm-{epoch:03d}-{val_loss:.4f}",
         monitor="val/loss",
         mode="min",
@@ -111,7 +114,7 @@ def main(cli_args: list[str] | None = None) -> None:
     logger = WandbLogger(
         project="bitddpm_unet",
         name="bitddpm_unet",
-        save_dir=str(output_dir / "logs"),
+        save_dir=str(log_dir),
     )
 
     trainer_kwargs = dict(
