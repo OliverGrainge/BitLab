@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
+import sys
 from pathlib import Path
 
 import torch
 import pytorch_lightning as pl
+import yaml
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
@@ -15,47 +16,21 @@ from bitlab.bittrainer import BitDDPMTrainer
 
 from datamodule import CIFAR10DataModule
 
-def parse_args(cli_args: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a BitUNet diffusion model on LSUN Bedrooms")
-    parser.add_argument("--max-steps", type=int, default=-1, help="Limit on training steps (-1 to disable)")
-    parser.add_argument("--accelerator", type=str, default="auto", help="Lightning accelerator setting (e.g. 'gpu', 'cpu', 'auto')")
-    parser.add_argument("--devices", type=str, default="auto", help="Devices to use (e.g. '1', 'auto', '0,1')")
-    parser.add_argument("--precision", type=str, default="32-true", help="Precision setting for Lightning trainer")
-    parser.add_argument("--train-batch-size", type=int, default=32, help="Training batch size")
-    parser.add_argument("--val-batch-size", type=int, default=64, help="Validation batch size")
-    parser.add_argument("--num-workers", type=int, default=0, help="Number of dataloader workers")
-    parser.add_argument("--val-split", type=float, default=0.02, help="Fraction of training data to reserve for validation if none provided")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--learning-rate", type=float, default=1e-4, help="Optimizer learning rate")
-    parser.add_argument("--weight-decay", type=float, default=0.0, help="Optimizer weight decay")
-    parser.add_argument("--optimizer", type=str, choices=["adam", "adamw"], default="adamw", help="Optimizer type for BitDDPMTrainer")
-    parser.add_argument("--beta-schedule", type=str, choices=["linear", "cosine", "quadratic"], default="linear", help="Noise schedule type")
-    parser.add_argument("--num-timesteps", type=int, default=1000, help="Number of diffusion timesteps")
-    parser.add_argument("--loss-type", type=str, choices=["l1", "l2", "huber"], default="l2", help="Loss type for diffusion training")
-    parser.add_argument("--prediction-type", type=str, choices=["epsilon", "x0", "v"], default="epsilon", help="Prediction type for the diffusion model")
-    parser.add_argument("--use-ema", action="store_true", help="Enable EMA tracking (defaults to enabled)")
-    parser.add_argument("--no-ema", dest="use_ema", action="store_false", help="Disable EMA tracking")
-    parser.set_defaults(use_ema=True)
-    parser.add_argument("--num-sample-steps", type=int, default=50, help="Number of DDIM sampling steps during validation")
-    parser.add_argument("--sample-every-n-steps", type=int, default=1000, help="How often (in steps) to generate samples during validation")
-    parser.add_argument("--num-samples", type=int, default=16, help="Number of samples to log when sampling")
-    parser.add_argument("--grad-clip-val", type=float, default=0.0, help="Gradient clipping value (0 disables clipping)")
-    parser.add_argument("--accumulate-grad-batches", type=int, default=1, help="Gradient accumulation steps")
-    parser.add_argument("--log-every-n-steps", type=int, default=50, help="Logging frequency in steps")
-    parser.add_argument(
-        "--validate-every-n-steps",
-        type=int,
-        default=1000,
-        help="Run validation every N training steps (set to 0 to disable automatic validation)"
-    )
-    return parser.parse_args(cli_args)
+
+def load_config(config_path: str) -> dict:
+    """Load configuration from a YAML file."""
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
 
 
-def main(cli_args: list[str] | None = None) -> None:
+def main(config_path: str) -> None:
     torch.set_float32_matmul_precision('medium')
-    args = parse_args(cli_args)
+    
+    # Load configuration
+    config = load_config(config_path)
 
-    pl.seed_everything(args.seed, workers=True)
+    pl.seed_everything(config["seed"], workers=True)
 
     # Set up output directories in the current working directory
     output_dir = Path.cwd()
@@ -65,22 +40,22 @@ def main(cli_args: list[str] | None = None) -> None:
     log_dir.mkdir(exist_ok=True)
 
     datamodule = CIFAR10DataModule(
-        train_batch_size=args.train_batch_size,
-        val_batch_size=args.val_batch_size,
-        num_workers=args.num_workers,
-        val_split=args.val_split,
-        seed=args.seed,
+        train_batch_size=config["train_batch_size"],
+        val_batch_size=config["val_batch_size"],
+        num_workers=config["num_workers"],
+        val_split=config["val_split"],
+        seed=config["seed"],
     )
 
     model_config = BitUNetConfig(
-        image_size=32,
-        in_channels=3,
-        out_channels=3,
-        model_channels=128,
-        attention_resolutions=(1, 2, 4),  # Add attention at 32x32 too
-        num_heads=4,
-        num_res_blocks=3,        # More residual blocks
-        channel_mult=(1, 2, 2, 2),  # Less aggressive channel growth
+        image_size=config["model"]["image_size"],
+        in_channels=config["model"]["in_channels"],
+        out_channels=config["model"]["out_channels"],
+        model_channels=config["model"]["model_channels"],
+        attention_resolutions=tuple(config["model"]["attention_resolutions"]),
+        num_heads=config["model"]["num_heads"],
+        num_res_blocks=config["model"]["num_res_blocks"],
+        channel_mult=tuple(config["model"]["channel_mult"]),
     )
     
     model = BitUNetModel(model_config)
@@ -89,22 +64,22 @@ def main(cli_args: list[str] | None = None) -> None:
         model=model,
         image_size=model_config.image_size,
         in_channels=model_config.in_channels,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        optimizer=args.optimizer,
-        num_timesteps=args.num_timesteps,
-        beta_schedule=args.beta_schedule,
-        loss_type=args.loss_type,
-        prediction_type=args.prediction_type,
-        use_ema=args.use_ema,
-        num_sample_steps=args.num_sample_steps,
-        sample_every_n_steps=args.sample_every_n_steps,
-        num_samples=args.num_samples,
+        learning_rate=config["learning_rate"],
+        weight_decay=config["weight_decay"],
+        optimizer=config["optimizer"],
+        num_timesteps=config["num_timesteps"],
+        beta_schedule=config["beta_schedule"],
+        loss_type=config["loss_type"],
+        prediction_type=config["prediction_type"],
+        use_ema=config["use_ema"],
+        num_sample_steps=config["num_sample_steps"],
+        sample_every_n_steps=config["sample_every_n_steps"],
+        num_samples=config["num_samples"],
     )
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
-        filename="bitddpm-{epoch:03d}-{val_loss:.4f}",
+        filename="bitddpm-{epoch:03d}-{val/loss:.4f}",
         monitor="val/loss",
         mode="min",
         save_top_k=3,
@@ -122,20 +97,20 @@ def main(cli_args: list[str] | None = None) -> None:
 
     trainer_kwargs = dict(
         default_root_dir=str(output_dir),
-        accelerator=args.accelerator,
-        devices=args.devices,
-        precision=args.precision,
-        max_steps=args.max_steps,
-        gradient_clip_val=args.grad_clip_val,
-        accumulate_grad_batches=args.accumulate_grad_batches,
-        log_every_n_steps=args.log_every_n_steps,
+        accelerator=config["accelerator"],
+        devices=config["devices"],
+        precision=config["precision"],
+        max_steps=config["max_steps"],
+        gradient_clip_val=config["grad_clip_val"],
+        accumulate_grad_batches=config["accumulate_grad_batches"],
+        log_every_n_steps=config["log_every_n_steps"],
         callbacks=[checkpoint_callback, lr_monitor],
         logger=logger,
         max_epochs=None,
     )
 
-    if args.validate_every_n_steps > 0:
-        trainer_kwargs["val_check_interval"] = args.validate_every_n_steps
+    if config["validate_every_n_steps"] > 0:
+        trainer_kwargs["val_check_interval"] = config["validate_every_n_steps"]
     else:
         trainer_kwargs["limit_val_batches"] = 0
 
@@ -145,4 +120,9 @@ def main(cli_args: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("Error: Config file required!")
+        print("Usage: python main.py <config.yaml>")
+        sys.exit(1)
+    
+    main(sys.argv[1])
