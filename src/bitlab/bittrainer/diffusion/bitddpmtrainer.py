@@ -114,6 +114,8 @@ class BitDDPMTrainer(pl.LightningModule):
         prediction_type: What model predicts - "epsilon", "x0", or "v" (default: "epsilon")
         learning_rate: Learning rate (default: 1e-4)
         lr_warmup_steps: Number of warmup steps (default: 1000)
+        lr_scheduler: Learning rate schedule after warmup - "constant", "linear", or "cosine" (default: "constant")
+        max_lr_steps: Maximum steps for lr decay (required for linear/cosine, ignored for constant)
         use_ema: Use exponential moving average (default: True)
         ema_decay: EMA decay rate (default: 0.9999)
         num_sample_steps: Number of DDIM sampling steps (default: 50)
@@ -142,6 +144,8 @@ class BitDDPMTrainer(pl.LightningModule):
         # Training parameters
         learning_rate: float = 1e-4,
         lr_warmup_steps: int = 1000,
+        lr_scheduler: Literal["constant", "linear", "cosine"] = "constant",
+        max_lr_steps: Optional[int] = None,
         use_ema: bool = True,
         ema_decay: float = 0.9999,
         # Sampling parameters
@@ -172,6 +176,8 @@ class BitDDPMTrainer(pl.LightningModule):
         self.prediction_type = prediction_type
         self.learning_rate = learning_rate
         self.lr_warmup_steps = lr_warmup_steps
+        self.lr_scheduler = lr_scheduler
+        self.max_lr_steps = max_lr_steps
         self.use_ema = use_ema
         self.ema_decay = ema_decay
         self.num_sample_steps = num_sample_steps
@@ -537,11 +543,45 @@ class BitDDPMTrainer(pl.LightningModule):
         else:
             raise ValueError(f"Unknown optimizer: {self.optimizer_type}")
         
-        # Create learning rate scheduler with warmup
-        def lr_lambda(step):
-            if step < self.lr_warmup_steps:
-                return step / self.lr_warmup_steps
-            return 1.0
+        # Create learning rate scheduler with warmup and different decay schedules
+        if self.lr_scheduler == "constant":
+            # Constant LR after warmup
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return step / self.lr_warmup_steps
+                return 1.0
+                
+        elif self.lr_scheduler == "linear":
+            # Linear decay after warmup
+            if self.max_lr_steps is None:
+                raise ValueError("max_lr_steps must be specified for linear scheduler")
+            
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return step / self.lr_warmup_steps
+                elif step >= self.max_lr_steps:
+                    return 0.0
+                else:
+                    # Linear decay from 1.0 to 0.0
+                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
+                    return 1.0 - progress
+                    
+        elif self.lr_scheduler == "cosine":
+            # Cosine annealing after warmup
+            if self.max_lr_steps is None:
+                raise ValueError("max_lr_steps must be specified for cosine scheduler")
+            
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return step / self.lr_warmup_steps
+                elif step >= self.max_lr_steps:
+                    return 0.0
+                else:
+                    # Cosine decay from 1.0 to 0.0
+                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
+                    return 0.5 * (1.0 + math.cos(math.pi * progress))
+        else:
+            raise ValueError(f"Unknown lr_scheduler: {self.lr_scheduler}")
         
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
         
