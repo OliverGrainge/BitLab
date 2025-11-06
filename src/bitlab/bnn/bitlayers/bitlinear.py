@@ -24,13 +24,14 @@ class BitLinear(Module):
     """
 
     def __init__(
-        self, in_features: int, out_features: int, bias: bool = True, eps: float = 1e-6
+        self, in_features: int, out_features: int, bias: bool = True, eps: float = 1e-6, quant_type: str = "ai8pc_wpt"
     ):
         super().__init__()
 
         self.in_features = in_features
         self.out_features = out_features
         self.eps = eps
+        self.quant_type = quant_type
 
         # Initialize parameters
         self.weight = nn.Parameter(torch.zeros(out_features, in_features))
@@ -38,7 +39,7 @@ class BitLinear(Module):
 
         # Initialize weights and quantizer
         self._init_weights()
-        self.quantizer = BitQuantizer(eps=eps)
+        self.quantizer = BitQuantizer(eps=eps, quant_type=quant_type)
 
     def _init_weights(self) -> None:
         """Initialize weights using Xavier uniform initialization."""
@@ -67,7 +68,7 @@ class BitLinear(Module):
         self.forward = self._deploy_forward
 
     def _deploy_forward(self, x: torch.Tensor) -> torch.Tensor:
-        return bitlinear(x, self.qws, self.qw, self.bias)
+        return bitlinear(x, self.qws, self.qw, self.bias, self.quant_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         dqx, dqw = self.quantizer(x, self.weight)
