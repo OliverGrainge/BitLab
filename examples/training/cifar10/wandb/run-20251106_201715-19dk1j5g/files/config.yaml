@@ -1,0 +1,89 @@
+_wandb:
+    value:
+        cli_version: 0.22.0
+        e:
+            4vd1g3u4stx4g2rqni4evtm86rwcja91:
+                args:
+                    - config_ai8pc_wpt.yaml
+                codePath: examples/training/cifar10/resnet.py
+                codePathLocal: resnet.py
+                cpu_count: 8
+                cpu_count_logical: 16
+                cudaVersion: "12.8"
+                disk:
+                    /:
+                        total: "2014574526464"
+                        used: "1615511883776"
+                email: oliver@grainge.me
+                executable: /home/oliver/miniconda3/bin/python
+                git:
+                    commit: 711ff9228abd9514c6021c8f253a7e2c74145fc7
+                    remote: git@github.com:OliverGrainge/BitLab.git
+                gpu: NVIDIA GeForce RTX 5090
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Blackwell
+                      cudaCores: 21760
+                      memoryTotal: "34190917632"
+                      name: NVIDIA GeForce RTX 5090
+                      uuid: GPU-b6b2499a-a3f4-818c-97fb-592660cd2938
+                host: oliver-MS-7C91
+                memory:
+                    total: "67341307904"
+                os: Linux-6.8.0-71-generic-x86_64-with-glibc2.39
+                program: /home/oliver/github/BitLab/examples/training/cifar10/resnet.py
+                python: CPython 3.11.4
+                root: /home/oliver/github/BitLab/examples/training/cifar10
+                startedAt: "2025-11-06T20:17:15.420817Z"
+                writerId: 4vd1g3u4stx4g2rqni4evtm86rwcja91
+        m: []
+        python_version: 3.11.4
+        t:
+            "1":
+                - 1
+                - 41
+            "2":
+                - 1
+                - 41
+            "3":
+                - 13
+                - 16
+                - 62
+            "4": 3.11.4
+            "5": 0.22.0
+            "8":
+                - 2
+            "12": 0.22.0
+            "13": linux-x86_64
+batch_size:
+    value: 128
+data_root:
+    value: ../../data
+device:
+    value: auto
+layer_type:
+    value: bitconv
+learning_rate:
+    value: 0.1
+momentum:
+    value: 0.9
+num_classes:
+    value: 10
+num_epochs:
+    value: 200
+num_workers:
+    value: 2
+quant_type:
+    value: ai8pc_wpt
+run_name:
+    value: ai8pc_wpt
+scheduler:
+    value: cosine
+seed:
+    value: 42
+wandb_entity:
+    value: null
+wandb_project:
+    value: bitlab-bitconv-cifar10-imageclass
+weight_decay:
+    value: 0.0005
