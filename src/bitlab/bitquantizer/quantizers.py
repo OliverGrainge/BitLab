@@ -30,7 +30,7 @@ def dequantize(scale: torch.Tensor, qtensor: torch.Tensor) -> torch.Tensor:
     # Per-channel: scale broadcasts with qtensor
     return scale * qtensor
 
-    
+
 class QuantizerFunction(Function):
     """Generic quantizer that composes weight and activation quantization schemes."""
     
@@ -42,7 +42,6 @@ class QuantizerFunction(Function):
         weight_quant_fn: Callable,
         act_quant_fn: Callable,
         eps: float = 1e-6,
-        group_size: Optional[int] = None
     ):
         """Forward pass that quantizes weights and activations, then dequantizes.
         
@@ -51,18 +50,12 @@ class QuantizerFunction(Function):
             x: Activation tensor
             w: Weight tensor
             weight_quant_fn: Function to quantize weights (w, eps) -> (scale, quantized)
-            act_quant_fn: Function to quantize activations (x, eps, group_size) -> (scale, quantized)
+            act_quant_fn: Function to quantize activations (x, eps) -> (scale, quantized)
             eps: Epsilon for numerical stability
-            group_size: Optional group size for group-wise activation quantization
         """
         # Quantize weights
         qws, qw = weight_quant_fn(w, eps)
-        
-        # Quantize activations (with optional group_size)
-        if group_size is not None:
-            qxs, qx = act_quant_fn(x, eps, group_size)
-        else:
-            qxs, qx = act_quant_fn(x, eps)
+        qxs, qx = act_quant_fn(x, eps)
         
         dqw = dequantize(qws, qw)
         dqx = dequantize(qxs, qx)
@@ -106,9 +99,9 @@ class QuantizerAi8pg128Wpt(QuantizerFunction):
     """
     
     @staticmethod
-    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6, group_size: int = 128):
+    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
         return QuantizerFunction.forward(
-            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg128, eps, group_size
+            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg128, eps
         )
 
     @staticmethod
@@ -125,9 +118,9 @@ class QuantizerAi8pg256Wpt(QuantizerFunction):
     """
     
     @staticmethod
-    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6, group_size: int = 128):
+    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
         return QuantizerFunction.forward(
-            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg256, eps, group_size
+            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg256, eps
         )
 
     @staticmethod
