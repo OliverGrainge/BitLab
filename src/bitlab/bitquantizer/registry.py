@@ -1,13 +1,14 @@
 """Registry for quantization schemes and functions."""
 from typing import Dict, Type, Callable
-from .quantizers import QuantizerAi8pcWpt, QuantizerAi8pgWpt
+from .quantizers import QuantizerAi8pcWpt, QuantizerAi8pg128Wpt, QuantizerAi8pg256Wpt
 from .weight import quantize_weight_wpt
-from .act import quantize_act_ai8pc, quantize_act_ai8pg
+from .act import quantize_act_ai8pc, quantize_act_ai8pg128, quantize_act_ai8pg256
 
 # Quantization scheme registry (combines weight + activation)
 QUANTIZER_REGISTRY: Dict[str, Type] = {
     "ai8pc_wpt": QuantizerAi8pcWpt,
-    "ai8pg_wpt": QuantizerAi8pgWpt,
+    "ai8pg128_wpt": QuantizerAi8pg128Wpt,
+    "ai8pg256_wpt": QuantizerAi8pg256Wpt,
 }
 
 # Weight quantization function registry
@@ -18,7 +19,8 @@ WEIGHT_QUANT_REGISTRY: Dict[str, Callable] = {
 # Activation quantization function registry  
 ACT_QUANT_REGISTRY: Dict[str, Callable] = {
     "ai8pc": quantize_act_ai8pc,
-    "ai8pg": quantize_act_ai8pg,
+    "ai8pg128": quantize_act_ai8pg128,
+    "ai8pg256": quantize_act_ai8pg256,
 }
 
 def get_quantizer(quant_type: str):

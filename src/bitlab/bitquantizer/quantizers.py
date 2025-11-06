@@ -3,7 +3,7 @@ import torch
 from torch.autograd import Function
 from typing import Callable, Optional
 from .weight import quantize_weight_wpt
-from .act import quantize_act_ai8pc, quantize_act_ai8pg
+from .act import quantize_act_ai8pc, quantize_act_ai8pg128, quantize_act_ai8pg256
 
 
 class QuantizerFunction(Function):
@@ -75,7 +75,7 @@ class QuantizerAi8pcWpt(QuantizerFunction):
         return grad_x, grad_w, None
 
 
-class QuantizerAi8pgWpt(QuantizerFunction):
+class QuantizerAi8pg128Wpt(QuantizerFunction):
     """Quantizer for ai8pg_wpt quantization scheme with group-wise activation quantization.
     
     Uses ai8pg activation quantization (per-group) with wpt weight quantization.
@@ -84,7 +84,7 @@ class QuantizerAi8pgWpt(QuantizerFunction):
     @staticmethod
     def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6, group_size: int = 128):
         return QuantizerFunction.forward(
-            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg, eps, group_size
+            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg128, eps, group_size
         )
 
     @staticmethod
@@ -93,7 +93,25 @@ class QuantizerAi8pgWpt(QuantizerFunction):
         return grad_x, grad_w, None, None
 
 
-# Backward compatibility aliases
-Quantizer_ai8pc_wpt = QuantizerAi8pcWpt
-Quantizer_ai8pg_wpt = QuantizerAi8pgWpt
+
+class QuantizerAi8pg256Wpt(QuantizerFunction):
+    """Quantizer for ai8pg_wpt quantization scheme with group-wise activation quantization.
+    
+    Uses ai8pg activation quantization (per-group) with wpt weight quantization.
+    """
+    
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6, group_size: int = 128):
+        return QuantizerFunction.forward(
+            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg256, eps, group_size
+        )
+
+    @staticmethod
+    def backward(ctx, grad_output_x, grad_output_dqw):
+        grad_x, grad_w = QuantizerFunction.backward(ctx, grad_output_x, grad_output_dqw)
+        return grad_x, grad_w, None, None
+
+
+
+
 

@@ -1,5 +1,6 @@
 """Simple MNIST training example with BitLinear layers."""
 
+import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,29 +13,68 @@ from bitlab.bnn import Module, BitLinear
 class SimpleMLP(Module):
     """Simple MLP with BitLinear layers for MNIST classification."""
     
-    def __init__(self, input_size=784, hidden_size=256, num_classes=10):
+    def __init__(self, input_size=784, hidden_size=256, num_classes=10, quant_type="ai8pc_wpt"):
         super().__init__()
-        self.layer1 = BitLinear(input_size, hidden_size)
-        self.layer2 = BitLinear(hidden_size, hidden_size)
-        self.layer3 = BitLinear(hidden_size, num_classes)
+        self.layer1 = nn.Linear(input_size, hidden_size)
+        self.layer2 = BitLinear(hidden_size, hidden_size, quant_type=quant_type)
+        self.layer3 = BitLinear(hidden_size, hidden_size, quant_type=quant_type)
+        self.layer4 = nn.Linear(hidden_size, num_classes)
     
     def forward(self, x):
         x = x.view(x.size(0), -1)  # Flatten
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
-        x = self.layer3(x)
+        x = F.relu(self.layer3(x))
+        x = self.layer4(x)
         return x
 
 
 def main():
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="MNIST training with BitLinear layers")
+    parser.add_argument(
+        "--quant-type",
+        type=str,
+        default="ai8pc_wpt",
+        choices=["ai8pc_wpt", "ai8pg128_wpt", "ai8pg256_wpt"],
+        help="Quantization type to use (default: ai8pc_wpt)"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=64,
+        help="Batch size for training (default: 64)"
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=0.001,
+        help="Learning rate (default: 0.001)"
+    )
+    parser.add_argument(
+        "--num-epochs",
+        type=int,
+        default=10,
+        help="Number of training epochs (default: 10)"
+    )
+    parser.add_argument(
+        "--hidden-size",
+        type=int,
+        default=256,
+        help="Hidden layer size (default: 256)"
+    )
+    args = parser.parse_args()
+    
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    print(f"Quantization type: {args.quant_type}")
+    print(f"Hyperparameters: batch_size={args.batch_size}, lr={args.learning_rate}, epochs={args.num_epochs}, hidden_size={args.hidden_size}")
     
     # Hyperparameters
-    batch_size = 64
-    learning_rate = 0.001
-    num_epochs = 10
+    batch_size = args.batch_size
+    learning_rate = args.learning_rate
+    num_epochs = args.num_epochs
     
     # Load MNIST data
     transform = transforms.Compose([
@@ -57,7 +97,7 @@ def main():
     )
     
     # Create model
-    model = SimpleMLP().to(device)
+    model = SimpleMLP(quant_type=args.quant_type, hidden_size=args.hidden_size).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     

@@ -1,6 +1,7 @@
 """Activation quantization functions."""
 from typing import Tuple
 import torch
+from functools import partial
 
 
 def quantize_act_ai8pc(
@@ -18,6 +19,7 @@ def quantize_act_ai8pg(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Quantize activations using ai8pg scheme with group-wise quantization."""
     orig_shape = x.shape
+    assert x.numel() % group_size == 0, "Number of elements must be divisible by group size"
     
     # Reshape to groups
     x_reshaped = x.reshape(-1, group_size)
@@ -25,8 +27,16 @@ def quantize_act_ai8pg(
     qxs = qxs.clamp(min=eps)
     qx_reshaped = (x_reshaped / qxs).round().clamp(-127, 127)
     
-    # Reshape back to original shape
-    qxs = qxs.reshape(orig_shape[:-1] + (1,))
+    # Reshape scales to broadcast correctly: [num_groups, 1] -> [num_groups, group_size]
+    # Then reshape to original shape
+    qxs = qxs.expand(-1, group_size).reshape(orig_shape)
     qx = qx_reshaped.reshape(orig_shape)
     return qxs, qx
 
+
+def quantize_act_ai8pg128(x: torch.Tensor, eps: float = 1e-6) -> Tuple[torch.Tensor, torch.Tensor]:
+    return quantize_act_ai8pg(x, eps, group_size=128)
+
+
+def quantize_act_ai8pg256(x: torch.Tensor, eps: float = 1e-6) -> Tuple[torch.Tensor, torch.Tensor]:
+    return quantize_act_ai8pg(x, eps, group_size=256)
