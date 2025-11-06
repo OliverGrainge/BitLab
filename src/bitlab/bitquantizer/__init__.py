@@ -4,6 +4,7 @@ from .quantizers import (
     QuantizerAi8pcWpt,
     QuantizerAi8pg128Wpt,
     QuantizerAi8pg256Wpt,
+    dequantize,
 )
 from .weight import quantize_weight_wpt
 from .act import quantize_act_ai8pc, quantize_act_ai8pg, quantize_act_ai8pg128, quantize_act_ai8pg256
@@ -99,6 +100,7 @@ __all__ = [
     "BitQuantizer",
     "quantize_weight",
     "quantize_act",
+    "dequantize",
     "QuantizerFunction",
     "QuantizerAi8pcWpt",
     "QuantizerAi8pg128Wpt",

@@ -55,7 +55,7 @@ class BitLinear(Module):
         3. Switching to optimized forward pass
         """
         # Quantize and pack weights for deployment
-        qs, qw = bitlinear.prepare_weights(self.weight)
+        qs, qw = bitlinear.prepare_weights(self.weight, self.eps, self.quant_type)
         bias_data = self.bias.data if self.bias is not None else None
         del self.bias, self.weight
 
@@ -68,7 +68,7 @@ class BitLinear(Module):
         self.forward = self._deploy_forward
 
     def _deploy_forward(self, x: torch.Tensor) -> torch.Tensor:
-        return bitlinear(x, self.qws, self.qw, self.bias, self.quant_type)
+        return bitlinear(x, self.qws, self.qw, self.bias, self.eps, self.quant_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         dqx, dqw = self.quantizer(x, self.weight)
