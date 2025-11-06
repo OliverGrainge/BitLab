@@ -17,7 +17,12 @@ def quantize_act_ai8pc(
 def quantize_act_ai8pg(
     x: torch.Tensor, eps: float = 1e-6, group_size: int = 128
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize activations using ai8pg scheme with group-wise quantization."""
+    """Quantize activations using ai8pg scheme with group-wise quantization.
+    
+    Returns:
+        qxs: Scale tensor with shape [num_groups, 1] (unexpanded to save memory)
+        qx: Quantized tensor with original shape
+    """
     orig_shape = x.shape
     assert x.numel() % group_size == 0, "Number of elements must be divisible by group size"
     
@@ -27,9 +32,7 @@ def quantize_act_ai8pg(
     qxs = qxs.clamp(min=eps)
     qx_reshaped = (x_reshaped / qxs).round().clamp(-127, 127)
     
-    # Reshape scales to broadcast correctly: [num_groups, 1] -> [num_groups, group_size]
-    # Then reshape to original shape
-    qxs = qxs.expand(-1, group_size).reshape(orig_shape)
+    # Return unexpanded scales [num_groups, 1] and quantized values in original shape
     qx = qx_reshaped.reshape(orig_shape)
     return qxs, qx
 

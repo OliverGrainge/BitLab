@@ -5,7 +5,32 @@ from typing import Callable, Optional
 from .weight import quantize_weight_wpt
 from .act import quantize_act_ai8pc, quantize_act_ai8pg128, quantize_act_ai8pg256
 
+def dequantize(scale: torch.Tensor, qtensor: torch.Tensor) -> torch.Tensor:
+    """Generic dequantize function for per-tensor, per-channel, or per-group scales.
+    
+    Args:
+        scale: Scale tensor (scalar, broadcastable, or [num_groups, 1])
+        qtensor: Quantized tensor
+        
+    Returns:
+        Dequantized tensor with same shape as qtensor
+    """
+    # Per-tensor: scalar
+    if scale.numel() == 1:
+        return scale * qtensor
+    
+    # Per-group: scale is [num_groups, 1] where num_groups < qtensor.numel()
+    if scale.ndim == 2 and scale.shape[1] == 1 and scale.numel() < qtensor.numel():
+        num_groups = scale.shape[0]
+        group_size = qtensor.numel() // num_groups
+        orig_shape = qtensor.shape
+        qtensor_reshaped = qtensor.reshape(-1, group_size)
+        return (scale * qtensor_reshaped).reshape(orig_shape)
+    
+    # Per-channel: scale broadcasts with qtensor
+    return scale * qtensor
 
+    
 class QuantizerFunction(Function):
     """Generic quantizer that composes weight and activation quantization schemes."""
     
@@ -39,9 +64,8 @@ class QuantizerFunction(Function):
         else:
             qxs, qx = act_quant_fn(x, eps)
         
-        # Dequantize
-        dqw = qws * qw
-        dqx = qxs * qx
+        dqw = dequantize(qws, qw)
+        dqx = dequantize(qxs, qx)
         
         # Save for backward (straight-through estimator)
         ctx.save_for_backward(x, w)
