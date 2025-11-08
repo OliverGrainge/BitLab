@@ -3,7 +3,7 @@ Sample from a trained BitDDPM model and compute the FID score on CIFAR-10.
 
 Example
 -------
-python test.py config.yaml --checkpoint /path/to/checkpoint.ckpt
+python test.py config.yaml
 """
 
 from __future__ import annotations
@@ -194,14 +194,28 @@ def export_generated_images(
     return first_saved
 
 
+def infer_checkpoint_path(config_path: Path) -> Path:
+    config_name = config_path.stem
+    candidates = [
+        Path.cwd(),
+        config_path.resolve().parent,
+        Path(__file__).resolve().parent,
+    ]
+    for base in candidates:
+        candidate = base / "checkpoints" / config_name / f"{config_name}.ckpt"
+        if candidate.exists():
+            return candidate
+    return Path.cwd() / "checkpoints" / config_name / f"{config_name}.ckpt"
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compute FID for BitDDPM CIFAR-10 model.")
     parser.add_argument("config", type=Path, help="Path to the YAML configuration used for training.")
     parser.add_argument(
         "--checkpoint",
         type=Path,
-        required=True,
-        help="Path to the PyTorch Lightning checkpoint (.ckpt).",
+        default=None,
+        help="Path to the PyTorch Lightning checkpoint (.ckpt). Defaults to checkpoints/<config>/<config>.ckpt.",
     )
 
     parser.add_argument(
@@ -249,10 +263,12 @@ def main(argv: list[str]) -> int:
     torch.set_float32_matmul_precision("medium")
     device = get_device()
 
-    if not args.checkpoint.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
     if not args.config.exists():
         raise FileNotFoundError(f"Config file not found: {args.config}")
+
+    checkpoint_path = args.checkpoint or infer_checkpoint_path(args.config)
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     config = load_config(args.config)
 
@@ -267,7 +283,7 @@ def main(argv: list[str]) -> int:
     diffusion_module, _ = build_diffusion_module(config)
     diffusion_module.to(device)
 
-    load_checkpoint(diffusion_module, args.checkpoint, device=device)
+    load_checkpoint(diffusion_module, checkpoint_path, device=device)
 
     target_samples = args.num_samples
 
@@ -305,10 +321,15 @@ def main(argv: list[str]) -> int:
             num_workers=args.cleanfid_workers,
         )
 
+    title = f"Results for {args.config}"
+    separator = "-" * len(title)
+    print(f"\n{title}\n{separator}")
+    print(f"Checkpoint       : {checkpoint_path}")
+    print(f"Samples evaluated: {target_samples}")
+    print(f"FID score        : {fid_score:.4f}")
     if preview_sample_path.exists():
-        print(f"Preview sample saved to {preview_sample_path}")
-
-    print(f"FID score ({target_samples} samples): {fid_score:.4f}")
+        print(f"Preview sample   : {preview_sample_path}")
+    print()
 
     return 0
 

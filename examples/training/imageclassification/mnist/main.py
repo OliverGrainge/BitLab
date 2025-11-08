@@ -7,15 +7,15 @@ from functools import partial
 from pathlib import Path
 from typing import Iterable, List
 
+import pytorch_lightning as pl
 import torch
+import torch.multiprocessing as mp
 import torch.nn as nn
 import yaml
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
-from pytorch_lightning.loggers import WandbLogger
-
-from bitlab.bnn import Module, BitLinear
 from bitlab.bittrainer.classification import BitImageClassifierTrainer
+from bitlab.bnn import BitLinear, Module
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
 
 from datamodule import MNISTClassificationDataModule
 
@@ -162,11 +162,10 @@ def main(config_path: str) -> None:
     # Callbacks
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
-        filename=f"best_model_{config['run_name']}" + "-{epoch:02d}-{val/acc:.4f}",
+        filename=config_name,
         monitor="val/acc",
         mode="max",
-        save_top_k=3,
-        save_last=True,
+        save_top_k=1,
         auto_insert_metric_name=False,
     )
 
@@ -209,10 +208,11 @@ def main(config_path: str) -> None:
 
 
 if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True)
+
     if len(sys.argv) < 2:
         print("Error: Config file required!")
         print("Usage: python main.py <config.yaml>")
         sys.exit(1)
 
     main(sys.argv[1])
-

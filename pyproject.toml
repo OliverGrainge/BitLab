@@ -73,5 +73,6 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
-markers =
-    unit = "Unit tests for individual components"
+markers = [
+    "unit: Unit tests for individual components",
+]

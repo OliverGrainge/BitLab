@@ -80,11 +80,10 @@ def main(config_path: str) -> None:
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
-        filename="bitddpm-{epoch:03d}-{val/loss:.4f}",
+        filename=config_name,
         monitor="val/loss",
         mode="min",
-        save_top_k=3,
-        save_last=True,
+        save_top_k=1,
         auto_insert_metric_name=False,
     )
 

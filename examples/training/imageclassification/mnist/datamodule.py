@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 import pytorch_lightning as pl
-from datasets import DatasetDict, load_dataset
 import torch
+from datasets import DatasetDict, load_dataset
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -145,7 +145,9 @@ class MNISTClassificationDataModule(pl.LightningDataModule):
     def _transform_train_batch(self, examples: Dict[str, Any]) -> Dict[str, Any]:
         """Transform a batch of training examples."""
 
-        images = [self.train_transform(image.convert("L")) for image in examples["image"]]
+        images = [
+            self.train_transform(image.convert("L")) for image in examples["image"]
+        ]
         labels = examples["label"]
         return {"images": images, "labels": labels}
 
@@ -186,4 +188,3 @@ if __name__ == "__main__":
     batch = next(iter(val_loader))
     images, labels = batch
     print("Val batch shape:", images.shape, labels.shape)
-

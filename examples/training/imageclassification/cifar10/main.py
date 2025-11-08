@@ -18,7 +18,7 @@ from bitlab.bnn import Module, BitConv2d
 from bitlab.bittrainer.classification import BitImageClassifierTrainer
 
 from datamodule import CIFAR10ClassificationDataModule
-
+import torch.multiprocessing as mp
 
 class BasicBlock(nn.Module):
     """Basic ResNet block with parameterized convolution layer."""
@@ -175,11 +175,10 @@ def main(config_path: str) -> None:
     # Setup callbacks
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
-        filename=f"best_model_{config['run_name']}" + "-{epoch:02d}-{val/acc:.4f}",
+        filename=config_name,
         monitor="val/acc",
         mode="max",
-        save_top_k=3,
-        save_last=True,
+        save_top_k=1,
         auto_insert_metric_name=False,
     )
     
@@ -225,6 +224,8 @@ def main(config_path: str) -> None:
 
 
 if __name__ == "__main__":
+    mp.set_start_method('spawn', force=True)
+
     if len(sys.argv) < 2:
         print("Error: Config file required!")
         print("Usage: python main.py <config.yaml>")
