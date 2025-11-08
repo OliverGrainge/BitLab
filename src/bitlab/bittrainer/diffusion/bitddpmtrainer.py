@@ -378,6 +378,17 @@ class BitDDPMTrainer(pl.LightningModule):
         self.log("train/loss", loss, prog_bar=True)
         
         return loss
+
+    def on_before_optimizer_step(self, optimizer):
+        """
+        Called after loss.backward() but before optimizer.step().
+        Use this hook to log gradient statistics while grads are fresh.
+        """
+        if self.logger is None:
+            return
+
+        if self.global_step % 100 == 0:
+            self._log_gradient_norms_by_type()
     
     def on_train_batch_end(self, outputs, batch, batch_idx):
         """Update EMA after each training batch."""
@@ -504,6 +515,9 @@ class BitDDPMTrainer(pl.LightningModule):
     
     def on_validation_epoch_end(self):
         """Generate and log sample images at the end of validation."""
+        if self.logger is not None:
+            self._log_weight_histograms_by_type()
+        
         # Generate samples at the end of every validation epoch
         samples = self.sample_ddim(
             batch_size=self.num_samples,
@@ -562,6 +576,77 @@ class BitDDPMTrainer(pl.LightningModule):
             except (AttributeError, ImportError) as e:
                 print(f"Warning: Could not log images - {type(e).__name__}: {e}")
     
+    def _log_gradient_norms_by_type(self):
+        """Log gradient norms for each layer, grouped by layer type."""
+        layer_gradients = {}
+
+        for name, module in self.model.named_modules():
+            layer_type = type(module).__name__
+
+            if not hasattr(module, "weight") or module.weight is None:
+                continue
+
+            if module.weight.grad is None:
+                continue
+
+            if layer_type not in layer_gradients:
+                layer_gradients[layer_type] = []
+
+            grad_norm = module.weight.grad.norm().item()
+            layer_name = name if name else "root"
+            layer_gradients[layer_type].append((layer_name, grad_norm))
+
+        for layer_type, grad_list in layer_gradients.items():
+            for layer_name, grad_norm in grad_list:
+                tag = f"gradients/{layer_type}/{layer_name}_norm"
+                self.log(tag, grad_norm, on_step=False, on_epoch=True)
+
+        total_norm_sq = 0.0
+        for param in self.model.parameters():
+            if param.grad is not None:
+                total_norm_sq += param.grad.norm().item() ** 2
+
+        total_norm = total_norm_sq ** 0.5
+        self.log("gradients/global_norm", total_norm, on_step=True, on_epoch=True, prog_bar=False)
+
+    def _log_weight_histograms_by_type(self):
+        """Log weight histograms for each layer, grouped by layer type."""
+        layer_weights = {}
+
+        for name, module in self.model.named_modules():
+            layer_type = type(module).__name__
+
+            if not hasattr(module, "weight") or module.weight is None:
+                continue
+
+            if layer_type not in layer_weights:
+                layer_weights[layer_type] = []
+
+            layer_name = name if name else "root"
+            layer_weights[layer_type].append((layer_name, module.weight.data))
+
+        if not layer_weights:
+            return
+
+        try:
+            if hasattr(self.logger.experiment, "add_histogram"):
+                for layer_type, weights_list in layer_weights.items():
+                    for layer_name, weights in weights_list:
+                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
+                        self.logger.experiment.add_histogram(tag, weights, global_step=self.global_step)
+            elif hasattr(self.logger, "experiment"):
+                import wandb
+
+                log_dict = {"global_step": self.global_step}
+                for layer_type, weights_list in layer_weights.items():
+                    for layer_name, weights in weights_list:
+                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
+                        log_dict[tag] = wandb.Histogram(weights.detach().cpu().numpy())
+
+                self.logger.experiment.log(log_dict)
+        except (AttributeError, ImportError) as e:
+            print(f"Warning: Could not log weight histograms - {type(e).__name__}: {e}")
+
     def configure_optimizers(self):
         """Configure optimizer and learning rate scheduler."""
         # Create optimizer
