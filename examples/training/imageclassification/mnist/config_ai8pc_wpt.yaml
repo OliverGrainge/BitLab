@@ -1,12 +1,12 @@
-# Quick test configuration for ResNet18 on CIFAR-10
+# Training configuration for MNIST MLP with BitLinear layers (ai8pc_wpt)
 
 # Run settings
-run_name: "test"
-wandb_project: "bitlab-bitconv-cifar10-imageclass"
+run_name: "ai8pc_wpt"
+wandb_project: "bitlab-mnist"
 wandb_entity: null
 
 # Trainer settings
-max_epochs: 2
+max_epochs: 20
 accelerator: "auto"
 devices: "auto"
 precision: "32-true"
@@ -16,21 +16,19 @@ log_every_n_steps: 50
 
 # Data settings
 train_batch_size: 128
-val_batch_size: 128
-num_workers: 2
-use_augmentation: true
+val_batch_size: 256
+num_workers: 0
+use_augmentation: false
 num_classes: 10
 seed: 42
 
 # Optimizer settings
-learning_rate: 0.1
-weight_decay: 0.0005
-optimizer: "sgd"
-sgd_momentum: 0.9
-sgd_nesterov: true
+learning_rate: 0.001
+weight_decay: 0.0001
+optimizer: "adam"
 
-# Scheduler settings
-lr_scheduler: "cosine"
+# Learning rate scheduler settings
+lr_scheduler: "constant"
 lr_warmup_steps: 0
 
 # Loss settings
@@ -38,14 +36,14 @@ loss_type: "cross_entropy"
 label_smoothing: 0.0
 
 # Metrics settings
-top_k: [1, 5]
+top_k: [1]
 compute_per_class_metrics: false
-log_samples_every_n_epochs: 1
+log_samples_every_n_epochs: 5
 num_samples_to_log: 16
 
-# Model settings
+# Model architecture settings
 model:
-  layer_type: "bitconv"
+  layer_type: "bitlinear"
   quant_type: "ai8pc_wpt"
-
+  hidden_dims: [512, 256]
 

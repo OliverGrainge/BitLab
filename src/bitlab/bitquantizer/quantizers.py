@@ -70,8 +70,8 @@ class QuantizerFunction(Function):
         """Backward pass using straight-through estimator."""
         grad_x = grad_output_x
         grad_w = grad_output_dqw
-        # Return None for all non-tensor inputs: weight_quant_fn, act_quant_fn, eps, group_size
-        return grad_x, grad_w, None, None, None, None
+        # Return None for all non-tensor inputs: weight_quant_fn, act_quant_fn, eps
+        return grad_x, grad_w, None, None, None
 
 
 class QuantizerAi8pcWpt(QuantizerFunction):
@@ -129,6 +129,15 @@ class QuantizerAi8pg256Wpt(QuantizerFunction):
         return grad_x, grad_w, None, None
 
 
+
+class NoQuantizer(QuantizerFunction): 
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
+        return x, w
+    
+    @staticmethod
+    def backward(ctx, grad_output_x, grad_output_dqw):
+        return grad_output_x, grad_output_dqw, None
 
 
 

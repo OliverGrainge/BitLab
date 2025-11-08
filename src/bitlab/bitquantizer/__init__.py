@@ -18,14 +18,14 @@ from .registry import (
 )
 import torch
 import re
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 
 # Backward compatibility aliases
 Quantizer_ai8pc_wpt = QuantizerAi8pcWpt
 Quantizer_ai8pg_wpt = QuantizerAi8pg128Wpt  # Default to 128 for backward compatibility
 
 
-def _parse_quant_type(quant_type: str) -> Tuple[str, str, Optional[int]]:
+def _parse_quant_type(quant_type: Union[str, None]) -> Tuple[str, str, Optional[int]]:
     """Parse quantizer type string to extract activation type, weight type, and group size.
     
     Examples:
@@ -33,6 +33,9 @@ def _parse_quant_type(quant_type: str) -> Tuple[str, str, Optional[int]]:
         "ai8pg128_wpt" -> ("ai8pg128", "wpt", 128)
         "ai8pg256_wpt" -> ("ai8pg256", "wpt", 256)
     """
+    if quant_type is None or quant_type.lower() == "none": 
+        return "none", "none"
+
     quant_type = quant_type.lower()
     parts = quant_type.rsplit("_", 1)
     if len(parts) != 2:

@@ -18,7 +18,7 @@ log_every_n_steps: 50
 # Data settings
 train_batch_size: 128
 val_batch_size: 128
-num_workers: 4
+num_workers: 0
 use_augmentation: true  # Enable data augmentation (random crop, flip)
 num_classes: 10
 seed: 42
