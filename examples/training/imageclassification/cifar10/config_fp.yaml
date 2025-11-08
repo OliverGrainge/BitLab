@@ -1,7 +1,7 @@
-# Training configuration for CIFAR-10 ResNet18 with BitConv2d layers (ai8pc_wpt)
+# Training configuration for CIFAR-10 ResNet18 with standard Conv2d layers
 
 # Run settings
-run_name: "resnet18-ai8pc-wpt"
+run_name: "resnet18-fp32"
 wandb_project: "bitlab-cifar10"
 wandb_entity: null
 
@@ -24,7 +24,7 @@ seed: 42
 
 # Optimizer settings
 optimizer: "sgd"
-learning_rate: 0.05
+learning_rate: 0.1
 weight_decay: 0.0005
 sgd_momentum: 0.9
 sgd_nesterov: true
@@ -45,6 +45,6 @@ num_samples_to_log: 16
 
 # Model architecture settings
 model:
-  layer_type: "bitconv"
-  quant_type: "ai8pc_wpt"
+  layer_type: "standard"
+  quant_type: null
 

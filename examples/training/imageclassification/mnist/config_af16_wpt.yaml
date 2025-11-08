@@ -1,12 +1,12 @@
-# Training configuration for MNIST MLP with standard Linear layers
+# Training configuration for MNIST MLP with BitLinear layers (ai8pc_wpt)
 
 # Run settings
-run_name: "standard"
+run_name: "af16_wpt"
 wandb_project: "bitlab-mnist"
-wandb_entity: null  # Set to your WandB username if needed
+wandb_entity: null
 
 # Trainer settings
-max_epochs: 15
+max_epochs: 20
 accelerator: "auto"
 devices: "auto"
 precision: "32-true"
@@ -43,6 +43,7 @@ num_samples_to_log: 16
 
 # Model architecture settings
 model:
-  layer_type: "standard"
+  layer_type: "bitlinear"
+  quant_type: "af16_wpt"
   hidden_dims: [512, 256]
 

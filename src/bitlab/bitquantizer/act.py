@@ -4,57 +4,75 @@ import torch
 from functools import partial
 
 
-def quantize_act_ai8pc(
+
+def quantize_act_abf16(
     x: torch.Tensor, eps: float = 1e-6
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize activations using ai8pc scheme.
+    # Convert to bfloat16
+    orig_dtype = x.dtype
+    qx = x.to(torch.bfloat16)
+    qx = qx.to(orig_dtype)
+    # Return dummy scale of 1.0 for API consistency
+    qxs = torch.tensor(1.0, dtype=torch.bfloat16, device=x.device)
+    return qxs, qx
+
+
+def quantize_act_af16(
+    x: torch.Tensor, eps: float = 1e-6
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    orig_dtype = x.dtype
+    qx = x.to(torch.float16)
+    qx = qx.to(orig_dtype)
+    # Return dummy scale of 1.0 for API consistency
+    qxs = torch.tensor(1.0, dtype=torch.float16, device=x.device)
+    return qxs, qx
+
+
+
+def quantize_act_ai8pt(
+    x: torch.Tensor, eps: float = 1e-6
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize linear activations using ai8ptk (int8 per-token) scheme.
     
-    Supports both linear (2D) and convolutional (4D) tensors:
-    - 2D [batch, features]: per-channel quantization over features
-    - 4D [batch, channels, height, width]: per-channel quantization over spatial dims
+    Args:
+        x: Activation tensor [batch, features]
     """
-    if x.ndim == 2:  # Linear: [batch, features]
-        qxs = x.abs().max(dim=-1, keepdim=True).values / 127.0
-    elif x.ndim == 4:  # Conv: [batch, channels, height, width]
-        # Per-channel quantization over spatial dimensions
-        qxs = x.abs().amax(dim=(2, 3), keepdim=True) / 127.0
-    else:
-        raise ValueError(f"Unsupported activation tensor dimension: {x.ndim}. Expected 2D or 4D.")
     
+    qxs = x.abs().amax() / 127.0
     qxs = qxs.clamp(min=eps)
     qx = (x / qxs).round().clamp(-127, 127)
     return qxs, qx
 
 
-def quantize_act_ai8pg(
-    x: torch.Tensor, eps: float = 1e-6, group_size: int = 128
+
+def quantize_act_ai8ptk(
+    x: torch.Tensor, eps: float = 1e-6
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize activations using ai8pg scheme with group-wise quantization.
+    """Quantize linear activations using ai8ptk (int8 per-token) scheme.
     
-    Supports both linear (2D) and convolutional (4D) tensors by flattening
-    and grouping elements for quantization.
-    
-    Returns:
-        qxs: Scale tensor with shape [num_groups, 1] (unexpanded to save memory)
-        qx: Quantized tensor with original shape
+    Args:
+        x: Activation tensor [batch, features]
     """
-    orig_shape = x.shape
-    assert x.numel() % group_size == 0, f"Number of elements ({x.numel()}) must be divisible by group size ({group_size})"
+    assert x.ndim == 2, f"Expected 2D linear activation tensor (in_features, out_features), got {x.ndim}D"
     
-    # Flatten and reshape to groups (works for any tensor shape)
-    x_reshaped = x.reshape(-1, group_size)
-    qxs = x_reshaped.abs().max(dim=-1, keepdim=True).values / 127.0
+    qxs = x.abs().max(dim=-1, keepdim=True).values / 127.0
     qxs = qxs.clamp(min=eps)
-    qx_reshaped = (x_reshaped / qxs).round().clamp(-127, 127)
-    
-    # Return unexpanded scales [num_groups, 1] and quantized values in original shape
-    qx = qx_reshaped.reshape(orig_shape)
+    qx = (x / qxs).round().clamp(-127, 127)
     return qxs, qx
 
 
-def quantize_act_ai8pg128(x: torch.Tensor, eps: float = 1e-6) -> Tuple[torch.Tensor, torch.Tensor]:
-    return quantize_act_ai8pg(x, eps, group_size=128)
+def quantize_act_ai8pc(
+    x: torch.Tensor, eps: float = 1e-6
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Quantize conv activations using ai8pc (int8 per-channel) scheme.
+    
+    Args:
+        x: Activation tensor [batch, channels, height, width]
+    """
+    assert x.ndim == 4, f"Expecte 4D conv activation tensor (batch, channels, height, width), got {x.ndim}D"
+    
+    qxs = x.abs().amax(dim=(2, 3), keepdim=True) / 127.0
+    qxs = qxs.clamp(min=eps)
+    qx = (x / qxs).round().clamp(-127, 127)
+    return qxs, qx
 
-
-def quantize_act_ai8pg256(x: torch.Tensor, eps: float = 1e-6) -> Tuple[torch.Tensor, torch.Tensor]:
-    return quantize_act_ai8pg(x, eps, group_size=256)

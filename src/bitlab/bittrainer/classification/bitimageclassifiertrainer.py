@@ -302,6 +302,9 @@ class BitImageClassifierTrainer(pl.LightningModule):
                 self.log(f"val/class_{i}_precision", precision[i], sync_dist=True)
                 self.log(f"val/class_{i}_recall", recall[i], sync_dist=True)
                 self.log(f"val/class_{i}_f1", f1[i], sync_dist=True)
+
+        if self.logger is not None:
+            self._log_weight_histograms_by_type()
         
         # Log confusion matrix
         if self.logger is not None and self.current_epoch % self.log_samples_every_n_epochs == 0:
@@ -379,6 +382,54 @@ class BitImageClassifierTrainer(pl.LightningModule):
         self.val_sample_images = []
         self.val_sample_labels = []
         self.val_sample_preds = []
+
+    def on_before_optimizer_step(self, optimizer):
+        """
+        Called after loss.backward() but before optimizer.step().
+        This is when gradients are fresh and available.
+        """
+        # Log gradient norms by layer type
+        if self.global_step % 100 == 0:
+            self._log_gradient_norms_by_type()
+
+
+    def _log_gradient_norms_by_type(self):
+        """Log gradient norms for each layer, organized by layer type."""
+        # Group gradients by layer type
+        layer_gradients = {}
+        
+        for name, module in self.model.named_modules():
+            layer_type = type(module).__name__
+            
+            if not hasattr(module, 'weight') or module.weight is None:
+                continue
+            
+            if module.weight.grad is None:
+                continue
+            
+            if layer_type not in layer_gradients:
+                layer_gradients[layer_type] = []
+            
+            # Compute gradient norm (L2 norm)
+            grad_norm = module.weight.grad.norm().item()
+            layer_name = name if name else 'root'
+            layer_gradients[layer_type].append((layer_name, grad_norm))
+        
+        # Log gradient norms as scalars (organized by type)
+        for layer_type, grad_list in layer_gradients.items():
+            for layer_name, grad_norm in grad_list:
+                tag = f"gradients/{layer_type}/{layer_name}_norm"
+                # Log per step, not per epoch to avoid spam
+                self.log(tag, grad_norm, on_step=False, on_epoch=True)
+        
+        # Log global gradient norm
+        total_norm = 0.0
+        for param in self.model.parameters():
+            if param.grad is not None:
+                total_norm += param.grad.norm().item() ** 2
+        
+        total_norm = total_norm ** 0.5
+        self.log("gradients/global_norm", total_norm, on_step=True, on_epoch=True, prog_bar=False)
     
     def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         """Test step."""
@@ -517,3 +568,48 @@ class BitImageClassifierTrainer(pl.LightningModule):
                 "frequency": 1
             }
         }
+
+    def _log_weight_histograms_by_type(self):
+        """Log weight histograms for each layer, organized by layer type."""
+        # Group parameters by layer type
+        layer_weights = {}
+        
+        for name, module in self.model.named_modules():
+            # Get the layer type
+            layer_type = type(module).__name__
+            
+            # Skip containers and non-parametric layers
+            if not hasattr(module, 'weight') or module.weight is None:
+                continue
+            
+            # Initialize list for this layer type if needed
+            if layer_type not in layer_weights:
+                layer_weights[layer_type] = []
+            
+            # Store layer name and weights
+            layer_weights[layer_type].append((name if name else 'root', module.weight.data))
+        try:
+            # Log histograms organized by type
+            if hasattr(self.logger.experiment, 'add_histogram'):
+                # TensorBoard
+                for layer_type, weights_list in layer_weights.items():
+                    for layer_name, weights in weights_list:
+                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
+                        self.logger.experiment.add_histogram(
+                            tag, weights, global_step=self.global_step
+                        )
+            
+            elif hasattr(self.logger, 'experiment'):
+                # WandB
+                import wandb
+                log_dict = {"global_step": self.global_step}
+                
+                for layer_type, weights_list in layer_weights.items():
+                    for layer_name, weights in weights_list:
+                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
+                        log_dict[tag] = wandb.Histogram(weights.cpu().numpy())
+                
+                self.logger.experiment.log(log_dict)
+        
+        except (AttributeError, ImportError) as e:
+            print(f"Warning: Could not log weight histograms - {type(e).__name__}: {e}")

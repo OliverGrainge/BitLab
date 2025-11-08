@@ -1,7 +1,7 @@
-# Training configuration for MNIST MLP with BitLinear layers (ai8pg256_wpt)
+# Training configuration for MNIST MLP with BitLinear layers (ai8pc_wpt)
 
 # Run settings
-run_name: "ai8pg256_wpt"
+run_name: "ai8ptk_wpc"
 wandb_project: "bitlab-mnist"
 wandb_entity: null
 
@@ -44,6 +44,6 @@ num_samples_to_log: 16
 # Model architecture settings
 model:
   layer_type: "bitlinear"
-  quant_type: "ai8pg256_wpt"
+  quant_type: "ai8ptk_wpc"
   hidden_dims: [512, 256]
 

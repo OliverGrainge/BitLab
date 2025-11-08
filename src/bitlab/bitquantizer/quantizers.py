@@ -1,143 +1,155 @@
-"""PyTorch autograd Functions for combined weight and activation quantization."""
+"""Autograd helpers for BitLab quantization schemes."""
+import math
+import sys
+from typing import Callable, Tuple
+
 import torch
 from torch.autograd import Function
-from typing import Callable, Optional
-from .weight import quantize_weight_wpt
-from .act import quantize_act_ai8pc, quantize_act_ai8pg128, quantize_act_ai8pg256
 
-def dequantize(scale: torch.Tensor, qtensor: torch.Tensor) -> torch.Tensor:
-    """Generic dequantize function for per-tensor, per-channel, or per-group scales.
-    
-    Args:
-        scale: Scale tensor (scalar, broadcastable, or [num_groups, 1])
-        qtensor: Quantized tensor
-        
-    Returns:
-        Dequantized tensor with same shape as qtensor
-    """
-    # Per-tensor: scalar
+Tensor = torch.Tensor
+QuantFn = Callable[[Tensor, float], Tuple[Tensor, Tensor]]
+
+__all__ = ["QuantizerFunction", "NoQuantizer", "dequantize", "build_quantizer_class"]
+
+
+def dequantize(scale: Tensor, qtensor: Tensor) -> Tensor:
+    """Expand scale as needed and reconstruct the floating-point tensor."""
+    if not isinstance(scale, torch.Tensor):
+        raise TypeError(f"Expected scale to be torch.Tensor, got {type(scale)}")
+
+    if scale.dtype != qtensor.dtype:
+        scale = scale.to(qtensor.dtype)
+
     if scale.numel() == 1:
         return scale * qtensor
-    
-    # Per-group: scale is [num_groups, 1] where num_groups < qtensor.numel()
-    if scale.ndim == 2 and scale.shape[1] == 1 and scale.numel() < qtensor.numel():
-        num_groups = scale.shape[0]
-        group_size = qtensor.numel() // num_groups
-        orig_shape = qtensor.shape
-        qtensor_reshaped = qtensor.reshape(-1, group_size)
-        return (scale * qtensor_reshaped).reshape(orig_shape)
-    
-    # Per-channel: scale broadcasts with qtensor
-    return scale * qtensor
+
+    # Exact broadcast match (per-channel, per-token, etc.)
+    try:
+        return scale * qtensor
+    except RuntimeError:
+        pass
+
+    # Per-group (e.g. wpg) where scale < qtensor along last dimension.
+    if scale.ndim == 2 and qtensor.ndim == 2 and scale.shape[1] <= qtensor.shape[1]:
+        group_size = math.ceil(qtensor.shape[1] / scale.shape[1])
+        expanded = scale.repeat_interleave(group_size, dim=1)[..., : qtensor.shape[1]]
+        return expanded * qtensor
+
+    raise RuntimeError(
+        f"Unable to broadcast scale shape {tuple(scale.shape)} with qtensor shape {tuple(qtensor.shape)}"
+    )
 
 
 class QuantizerFunction(Function):
-    """Generic quantizer that composes weight and activation quantization schemes."""
-    
+    """Generic quantizer that accepts weight/activation functions at call time."""
+
     @staticmethod
-    def forward(
+    def _forward_impl(
         ctx,
-        x: torch.Tensor,
-        w: torch.Tensor,
-        weight_quant_fn: Callable,
-        act_quant_fn: Callable,
-        eps: float = 1e-6,
-    ):
-        """Forward pass that quantizes weights and activations, then dequantizes.
-        
-        Args:
-            ctx: Context object for saving tensors
-            x: Activation tensor
-            w: Weight tensor
-            weight_quant_fn: Function to quantize weights (w, eps) -> (scale, quantized)
-            act_quant_fn: Function to quantize activations (x, eps) -> (scale, quantized)
-            eps: Epsilon for numerical stability
-        """
-        # Quantize weights
+        x: Tensor,
+        w: Tensor,
+        weight_quant_fn: QuantFn,
+        act_quant_fn: QuantFn,
+        eps: float,
+    ) -> Tuple[Tensor, Tensor]:
         qws, qw = weight_quant_fn(w, eps)
         qxs, qx = act_quant_fn(x, eps)
-        
+
         dqw = dequantize(qws, qw)
         dqx = dequantize(qxs, qx)
-        
-        # Save for backward (straight-through estimator)
+
         ctx.save_for_backward(x, w)
-        ctx.eps = eps
         return dqx, dqw
-    
+
     @staticmethod
-    def backward(ctx, grad_output_x, grad_output_dqw):
-        """Backward pass using straight-through estimator."""
-        grad_x = grad_output_x
-        grad_w = grad_output_dqw
-        # Return None for all non-tensor inputs: weight_quant_fn, act_quant_fn, eps
+    def forward(  # type: ignore[override]
+        ctx,
+        x: Tensor,
+        w: Tensor,
+        weight_quant_fn: QuantFn,
+        act_quant_fn: QuantFn,
+        eps: float = 1e-6,
+    ) -> Tuple[Tensor, Tensor]:
+        return QuantizerFunction._forward_impl(ctx, x, w, weight_quant_fn, act_quant_fn, eps)
+
+    @staticmethod
+    def _backward_impl(ctx, grad_dqx: Tensor, grad_dqw: Tensor) -> Tuple[Tensor, Tensor]:
+        # Straight-through estimator: pass gradients through.
+        return grad_dqx, grad_dqw
+
+    @staticmethod
+    def backward(  # type: ignore[override]
+        ctx,
+        grad_dqx: Tensor,
+        grad_dqw: Tensor,
+    ):
+        grad_x, grad_w = QuantizerFunction._backward_impl(ctx, grad_dqx, grad_dqw)
         return grad_x, grad_w, None, None, None
 
 
-class QuantizerAi8pcWpt(QuantizerFunction):
-    """Quantizer for ai8pc_wpt quantization scheme.
-    
-    Uses ai8pc activation quantization (per-channel) with wpt weight quantization.
-    """
-    
-    @staticmethod
-    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
-        return QuantizerFunction.forward(
-            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pc, eps
-        )
+class NoQuantizer(Function):
+    """Identity quantizer used for 'none' scheme."""
 
     @staticmethod
-    def backward(ctx, grad_output_x, grad_output_dqw):
-        grad_x, grad_w = QuantizerFunction.backward(ctx, grad_output_x, grad_output_dqw)
+    def forward(ctx, x: Tensor, w: Tensor, eps: float = 1e-6) -> Tuple[Tensor, Tensor]:
+        return x, w
+
+    @staticmethod
+    def backward(ctx, grad_x: Tensor, grad_w: Tensor):
         return grad_x, grad_w, None
 
 
-class QuantizerAi8pg128Wpt(QuantizerFunction):
-    """Quantizer for ai8pg_wpt quantization scheme with group-wise activation quantization.
-    
-    Uses ai8pg activation quantization (per-group) with wpt weight quantization.
-    """
-    
-    @staticmethod
-    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
-        return QuantizerFunction.forward(
-            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg128, eps
-        )
-
-    @staticmethod
-    def backward(ctx, grad_output_x, grad_output_dqw):
-        grad_x, grad_w = QuantizerFunction.backward(ctx, grad_output_x, grad_output_dqw)
-        return grad_x, grad_w, None, None
+def _to_camel(name: str) -> str:
+    return "".join(part.capitalize() for part in name.split("_"))
 
 
+def build_quantizer_class(
+    act_name: str,
+    weight_name: str,
+    weight_quant_fn: QuantFn,
+    act_quant_fn: QuantFn,
+):
+    """Create (or retrieve) a torch.autograd.Function for a specific act/weight pair."""
+    class_name = f"Quantizer{_to_camel(act_name)}{_to_camel(weight_name)}"
+    module = sys.modules[__name__]
 
-class QuantizerAi8pg256Wpt(QuantizerFunction):
-    """Quantizer for ai8pg_wpt quantization scheme with group-wise activation quantization.
-    
-    Uses ai8pg activation quantization (per-group) with wpt weight quantization.
-    """
-    
-    @staticmethod
-    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
-        return QuantizerFunction.forward(
-            ctx, x, w, quantize_weight_wpt, quantize_act_ai8pg256, eps
-        )
+    existing = getattr(module, class_name, None)
+    if existing is not None:
+        return existing
 
-    @staticmethod
-    def backward(ctx, grad_output_x, grad_output_dqw):
-        grad_x, grad_w = QuantizerFunction.backward(ctx, grad_output_x, grad_output_dqw)
-        return grad_x, grad_w, None, None
+    doc = (
+        f"Quantizer combining activation scheme '{act_name}' with weight scheme '{weight_name}'."
+    )
 
+    def forward(  # type: ignore[override]
+        ctx,
+        x: Tensor,
+        w: Tensor,
+        eps: float = 1e-6,
+        _wq: QuantFn = weight_quant_fn,
+        _aq: QuantFn = act_quant_fn,
+    ) -> Tuple[Tensor, Tensor]:
+        return QuantizerFunction._forward_impl(ctx, x, w, _wq, _aq, eps)
 
+    def backward(  # type: ignore[override]
+        ctx,
+        grad_dqx: Tensor,
+        grad_dqw: Tensor,
+    ):
+        grad_x, grad_w = QuantizerFunction._backward_impl(ctx, grad_dqx, grad_dqw)
+        return grad_x, grad_w, None
 
-class NoQuantizer(QuantizerFunction): 
-    @staticmethod
-    def forward(ctx, x: torch.Tensor, w: torch.Tensor, eps: float = 1e-6):
-        return x, w
-    
-    @staticmethod
-    def backward(ctx, grad_output_x, grad_output_dqw):
-        return grad_output_x, grad_output_dqw, None
+    quantizer_cls = type(
+        class_name,
+        (QuantizerFunction,),
+        {
+            "__doc__": doc,
+            "forward": staticmethod(forward),
+            "backward": staticmethod(backward),
+        },
+    )
 
-
-
+    setattr(module, class_name, quantizer_cls)
+    if class_name not in __all__:
+        __all__.append(class_name)
+    return quantizer_cls

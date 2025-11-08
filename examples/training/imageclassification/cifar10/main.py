@@ -131,7 +131,7 @@ def main(config_path: str) -> None:
         train_batch_size=config["train_batch_size"],
         val_batch_size=config["val_batch_size"],
         num_workers=config["num_workers"],
-        pin_memory=True,
+        pin_memory=False,
         use_augmentation=config["use_augmentation"],
         seed=config["seed"],
     )

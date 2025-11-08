@@ -21,7 +21,7 @@ class CIFAR10ClassificationDataModule(pl.LightningDataModule):
         train_batch_size: int = 128,
         val_batch_size: int = 128,
         num_workers: int = 4,
-        pin_memory: bool = True,
+        pin_memory: bool = False,
         use_augmentation: bool = True,
         seed: int = 42,
     ) -> None:

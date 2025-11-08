@@ -44,9 +44,7 @@ class MNISTMLP(Module):
         for idx, next_dim in enumerate(layer_dims[1:]):
             is_last = idx == len(layer_dims[1:]) - 1
 
-            if idx == 0:
-                layer_cls = nn.Linear
-            elif is_last:
+            if is_last:
                 layer_cls = nn.Linear
             else:
                 layer_cls = linear_layer

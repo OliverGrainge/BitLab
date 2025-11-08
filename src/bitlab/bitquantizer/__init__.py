@@ -1,13 +1,19 @@
 """BitQuantizer: Quantization utilities for binary neural networks."""
-from .quantizers import (
-    QuantizerFunction,
-    QuantizerAi8pcWpt,
-    QuantizerAi8pg128Wpt,
-    QuantizerAi8pg256Wpt,
-    dequantize,
+from .quantizers import QuantizerFunction, dequantize, build_quantizer_class, NoQuantizer
+from .weight import (
+    quantize_weight_wpt,
+    quantize_weight_wpc,
+    quantize_weight_wpg,
+    quantize_weight_wbf16,
+    quantize_weight_wf16,
 )
-from .weight import quantize_weight_wpt
-from .act import quantize_act_ai8pc, quantize_act_ai8pg, quantize_act_ai8pg128, quantize_act_ai8pg256
+from .act import (
+    quantize_act_ai8pc,
+    quantize_act_ai8pt,
+    quantize_act_ai8ptk,
+    quantize_act_abf16,
+    quantize_act_af16,
+)
 from .registry import (
     QUANTIZER_REGISTRY,
     WEIGHT_QUANT_REGISTRY,
@@ -17,23 +23,26 @@ from .registry import (
     get_act_quant_fn,
 )
 import torch
-import re
-from typing import Tuple, Optional, Union
+from typing import Tuple, Union
+
+# Canonical quantizer classes for common schemes
+QuantizerAi8pcWpt = build_quantizer_class("ai8pc", "wpt", quantize_weight_wpt, quantize_act_ai8pc)
+QuantizerAi8ptWpt = build_quantizer_class("ai8pt", "wpt", quantize_weight_wpt, quantize_act_ai8pt)
+QuantizerAi8ptkWpc = build_quantizer_class("ai8ptk", "wpc", quantize_weight_wpc, quantize_act_ai8ptk)
 
 # Backward compatibility aliases
 Quantizer_ai8pc_wpt = QuantizerAi8pcWpt
-Quantizer_ai8pg_wpt = QuantizerAi8pg128Wpt  # Default to 128 for backward compatibility
+Quantizer_ai8pg_wpt = QuantizerAi8ptWpt  # Legacy name retained for compatibility
 
 
-def _parse_quant_type(quant_type: Union[str, None]) -> Tuple[str, str, Optional[int]]:
-    """Parse quantizer type string to extract activation type, weight type, and group size.
-    
+def _parse_quant_type(quant_type: Union[str, None]) -> Tuple[str, str]:
+    """Parse quantizer type string to extract activation and weight identifiers.
+
     Examples:
-        "ai8pc_wpt" -> ("ai8pc", "wpt", None)
-        "ai8pg128_wpt" -> ("ai8pg128", "wpt", 128)
-        "ai8pg256_wpt" -> ("ai8pg256", "wpt", 256)
+        "ai8pc_wpt" -> ("ai8pc", "wpt")
+        "ai8pt_wpc" -> ("ai8pt", "wpc")
     """
-    if quant_type is None or quant_type.lower() == "none": 
+    if quant_type is None or quant_type.lower() == "none":
         return "none", "none"
 
     quant_type = quant_type.lower()
@@ -55,9 +64,8 @@ class BitQuantizer:
         
         Args:
             eps: Epsilon for numerical stability
-            quant_type: Quantization scheme in format "{act_quant_type}_{weight_quant_type}" or 
-                       "{act_quant_type}{group_size}_{weight_quant_type}" for pg schemes.
-                       Examples: "ai8pc_wpt", "ai8pg128_wpt", "ai8pg256_wpt"
+            quant_type: Quantization scheme in format "{act_quant_type}_{weight_quant_type}".
+                       Example: "ai8pc_wpt"
         """
         self.eps = eps
         
@@ -105,16 +113,23 @@ __all__ = [
     "quantize_act",
     "dequantize",
     "QuantizerFunction",
+    "NoQuantizer",
+    "build_quantizer_class",
     "QuantizerAi8pcWpt",
-    "QuantizerAi8pg128Wpt",
-    "QuantizerAi8pg256Wpt",
+    "QuantizerAi8ptWpt",
+    "QuantizerAi8ptkWpc",
     "Quantizer_ai8pc_wpt",
     "Quantizer_ai8pg_wpt",
     "quantize_weight_wpt",
+    "quantize_weight_wpc",
+    "quantize_weight_wpg",
+    "quantize_weight_wbf16",
+    "quantize_weight_wf16",
     "quantize_act_ai8pc",
-    "quantize_act_ai8pg",
-    "quantize_act_ai8pg128",
-    "quantize_act_ai8pg256",
+    "quantize_act_ai8pt",
+    "quantize_act_ai8ptk",
+    "quantize_act_abf16",
+    "quantize_act_af16",
     "QUANTIZER_REGISTRY",
     "WEIGHT_QUANT_REGISTRY",
     "ACT_QUANT_REGISTRY",
