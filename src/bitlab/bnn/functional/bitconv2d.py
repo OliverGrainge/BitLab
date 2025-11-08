@@ -1,8 +1,10 @@
+"""Functional counterpart used by deployment-ready binary convolution layers."""
+
 import torch
 import torch.nn.functional as F
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
-from bitlab.bitquantizer import quantize_weight, quantize_act, dequantize
+from bitlab.bitquantizer import quantize_weight, quantize_act, dequantize, _parse_quant_type
 
 
 class _BitConv2dFunctional:
@@ -14,11 +16,10 @@ class _BitConv2dFunctional:
         eps: float = 1e-6,
         quant_type: str = "ai8pc_wpt"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Return quantized weights plus scale that the layer can stash for deploy."""
-        # Parse quant_type: format is "{act_type}_{weight_type}" (e.g., "ai8pc_wpt")
-        weight_quant_type = quant_type.split("_")[-1]  # Extract weight type (e.g., "wpt")
-        qws, qw = quantize_weight(weight, eps, weight_quant_type)
-        return qws, qw
+        """Return weight scale and quantized tensor that the layer can stash for deploy."""
+        _, weight_quant_type = _parse_quant_type(quant_type)
+        scale, qtensor = quantize_weight(weight, eps, weight_quant_type)
+        return scale, qtensor
 
     def __call__(
         self,
@@ -26,16 +27,33 @@ class _BitConv2dFunctional:
         qws: torch.Tensor,
         qw: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
-        stride: int = 1,
-        padding: int = 0,
-        dilation: int = 1,
+        stride: Union[int, Tuple[int, int]] = 1,
+        padding: Union[int, Tuple[int, int]] = 0,
+        dilation: Union[int, Tuple[int, int]] = 1,
         groups: int = 1,
         eps: float = 1e-6,
         quant_type: str = "ai8pc_wpt"
     ) -> torch.Tensor:
+        """
+        Run deployment-time binary convolution leveraging quantized buffers.
+
+        Args:
+            x: Floating-point activation tensor to be quantized.
+            qws: Weight scale tensor produced by `prepare_weights`.
+            qw: Packed quantized weights tensor.
+            bias: Optional bias buffer saved during deployment preparation.
+            stride: Convolution stride applied after quantization.
+            padding: Padding to apply to the input tensor.
+            dilation: Kernel dilation factor for convolution.
+            groups: Number of feature groups processed independently.
+            eps: Numerical stabilizer for activation quantization.
+            quant_type: Selector describing activation/weight quantization pairing.
+
+        Returns:
+            Tensor produced by `F.conv2d` after dequantization.
+        """
         dqweight = dequantize(qws, qw)
-        # Parse quant_type: format is "{act_type}_{weight_type}" (e.g., "ai8pc_wpt")
-        act_quant_type = quant_type.rsplit("_", 1)[0]  # Extract activation type (e.g., "ai8pc" or "ai8pg")
+        act_quant_type, _ = _parse_quant_type(quant_type)
         qxs, qx = quantize_act(x, eps, act_quant_type)
         dqx = dequantize(qxs, qx)
         return F.conv2d(dqx, dqweight, bias, stride, padding, dilation, groups)

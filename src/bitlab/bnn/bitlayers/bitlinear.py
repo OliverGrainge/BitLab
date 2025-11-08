@@ -1,3 +1,5 @@
+"""Binary linear layer implementations with shared quantization utilities."""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,6 +28,16 @@ class BitLinear(Module):
     def __init__(
         self, in_features: int, out_features: int, bias: bool = True, eps: float = 1e-6, quant_type: str = "ai8pc_wpt"
     ):
+        """
+        Initialize a binary linear layer with learnable parameters and a quantizer.
+
+        Args:
+            in_features: Number of input activations per sample.
+            out_features: Number of output activations per sample.
+            bias: Whether to include a learnable bias term.
+            eps: Small constant added during quantization to avoid division by zero.
+            quant_type: String identifier that selects the activation/weight quantization pair.
+        """
         super().__init__()
 
         self.in_features = in_features
@@ -56,7 +68,7 @@ class BitLinear(Module):
         """
         # Quantize and pack weights for deployment
         qs, qw = bitlinear.prepare_weights(self.weight, self.eps, self.quant_type)
-        bias_data = self.bias.data if self.bias is not None else None
+        bias_data = self.bias.detach().clone() if self.bias is not None else None
         del self.bias, self.weight
 
         # Replace parameters with quantized buffers
@@ -68,8 +80,10 @@ class BitLinear(Module):
         self.forward = self._deploy_forward
 
     def _deploy_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Run the quantized inference pathway after `deploy` has packed the weights."""
         return bitlinear(x, self.qws, self.qw, self.bias, self.eps, self.quant_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply quantization-aware linear transformation suitable for training."""
         dqx, dqw = self.quantizer(x, self.weight)
         return F.linear(dqx, dqw, self.bias)

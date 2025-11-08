@@ -69,7 +69,7 @@ def quantize_act_ai8pc(
     Args:
         x: Activation tensor [batch, channels, height, width]
     """
-    assert x.ndim == 4, f"Expecte 4D conv activation tensor (batch, channels, height, width), got {x.ndim}D"
+    assert x.ndim == 4, f"Expected 4D conv activation tensor (batch, channels, height, width), got {x.ndim}D"
     
     qxs = x.abs().amax(dim=(2, 3), keepdim=True) / 127.0
     qxs = qxs.clamp(min=eps)

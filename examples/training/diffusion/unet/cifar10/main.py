@@ -5,14 +5,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import torch
 import pytorch_lightning as pl
+import torch
 import yaml
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
-
 from bitlab.bitmodels import BitUNetConfig, BitUNetModel
 from bitlab.bittrainer import BitDDPMTrainer
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
 
 from datamodule import CIFAR10DataModule
 

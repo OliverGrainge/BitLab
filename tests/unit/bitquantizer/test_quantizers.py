@@ -1,140 +1,107 @@
 """Unit tests for Quantizer classes."""
+from __future__ import annotations
+
 import pytest
 import torch
-from bitlab.bitquantizer.registry import QUANTIZER_REGISTRY
 
-QUANTIZER_CLASSES = list(QUANTIZER_REGISTRY.values())
-QUANTIZER_NAMES = list(QUANTIZER_REGISTRY.keys())
-
-
-# Fixtures
-@pytest.fixture
-def sample_activations():
-    """Fixture providing sample activation tensors for linear layers (2D)."""
-    return torch.randn(4, 256)
-
-
-@pytest.fixture
-def sample_weights():
-    """Fixture providing sample weight tensors for linear layers (2D)."""
-    return torch.randn(8, 256)
-
-
-@pytest.fixture
-def sample_conv_activations():
-    """Fixture providing sample activation tensors for conv layers (4D)."""
-    return torch.randn(4, 64, 28, 28)
-
-
-@pytest.fixture
-def sample_conv_weights():
-    """Fixture providing sample weight tensors for conv layers (4D)."""
-    return torch.randn(32, 64, 3, 3)
-
-
-@pytest.fixture(params=zip(QUANTIZER_NAMES, QUANTIZER_CLASSES), ids=QUANTIZER_NAMES)
-def quantizer(request):
-    """Fixture providing quantizer name and class."""
-    return request.param
 
 
 @pytest.mark.unit
 class TestQuantizerForward:
-    """Unit tests for quantizer forward pass."""
-    
-    def test_forward_output_shape(self, quantizer, sample_activations, sample_weights):
-        """Test that forward pass returns correct output shapes."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_activations, sample_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
-        assert dqx.shape == x.shape, f"Dequantized activation shape mismatch for {quantizer_name}"
-        assert dqw.shape == w.shape, f"Dequantized weight shape mismatch for {quantizer_name}"
-    
-    def test_forward_output_type(self, quantizer, sample_activations, sample_weights):
-        """Test that forward pass returns torch.Tensor."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_activations, sample_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
-        assert isinstance(dqx, torch.Tensor), f"Output should be torch.Tensor for {quantizer_name}"
-        assert isinstance(dqw, torch.Tensor), f"Output should be torch.Tensor for {quantizer_name}"
+    """Unit tests for quantizer forward pass on linear (2D) tensors."""
 
+    def test_forward_output_shape(
+        self, linear_quantizer, sample_activations, sample_weights
+    ):
+        quantizer_name, quantizer_class = linear_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_activations, sample_weights)
+
+        assert dqx.shape == sample_activations.shape
+        assert dqw.shape == sample_weights.shape
+
+    def test_forward_output_type(
+        self, linear_quantizer, sample_activations, sample_weights
+    ):
+        quantizer_name, quantizer_class = linear_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_activations, sample_weights)
+
+        assert isinstance(dqx, torch.Tensor)
+        assert isinstance(dqw, torch.Tensor)
 
 
 @pytest.mark.unit
 class TestQuantizerOutput:
-    """Unit tests for quantizer output validation."""
-    
-    def test_output_is_tensor(self, quantizer, sample_activations, sample_weights):
-        """Test that quantizer outputs are torch.Tensor instances."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_activations, sample_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
+    """Output validation for linear quantizer invocations."""
+
+    def test_output_is_tensor(
+        self, linear_quantizer, sample_activations, sample_weights
+    ):
+        quantizer_name, quantizer_class = linear_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_activations, sample_weights)
+
         assert isinstance(dqx, torch.Tensor)
         assert isinstance(dqw, torch.Tensor)
-    
-    def test_output_preserves_shape(self, quantizer, sample_activations, sample_weights):
-        """Test that quantizer outputs preserve input shapes."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_activations, sample_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
-        assert dqx.shape == x.shape
-        assert dqw.shape == w.shape
+
+    def test_output_preserves_shape(
+        self, linear_quantizer, sample_activations, sample_weights
+    ):
+        quantizer_name, quantizer_class = linear_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_activations, sample_weights)
+
+        assert dqx.shape == sample_activations.shape
+        assert dqw.shape == sample_weights.shape
 
 
 @pytest.mark.unit
 class TestConvQuantizerForward:
     """Unit tests for quantizer forward pass with conv2d (4D) tensors."""
-    
-    def test_forward_output_shape(self, quantizer, sample_conv_activations, sample_conv_weights):
-        """Test that forward pass returns correct output shapes for conv2d."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_conv_activations, sample_conv_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
-        assert dqx.shape == x.shape, f"Dequantized activation shape mismatch for {quantizer_name}"
-        assert dqw.shape == w.shape, f"Dequantized weight shape mismatch for {quantizer_name}"
-    
-    def test_forward_output_type(self, quantizer, sample_conv_activations, sample_conv_weights):
-        """Test that forward pass returns torch.Tensor for conv2d."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_conv_activations, sample_conv_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
-        assert isinstance(dqx, torch.Tensor), f"Output should be torch.Tensor for {quantizer_name}"
-        assert isinstance(dqw, torch.Tensor), f"Output should be torch.Tensor for {quantizer_name}"
+
+    def test_forward_output_shape(
+        self, conv_quantizer, sample_conv_activations, sample_conv_weights
+    ):
+        quantizer_name, quantizer_class = conv_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_conv_activations, sample_conv_weights)
+
+        assert dqx.shape == sample_conv_activations.shape
+        assert dqw.shape == sample_conv_weights.shape
+
+    def test_forward_output_type(
+        self, conv_quantizer, sample_conv_activations, sample_conv_weights
+    ):
+        quantizer_name, quantizer_class = conv_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_conv_activations, sample_conv_weights)
+
+        assert isinstance(dqx, torch.Tensor)
+        assert isinstance(dqw, torch.Tensor)
 
 
 @pytest.mark.unit
 class TestConvQuantizerOutput:
-    """Unit tests for quantizer output validation with conv2d tensors."""
-    
-    def test_output_is_tensor(self, quantizer, sample_conv_activations, sample_conv_weights):
-        """Test that quantizer outputs are torch.Tensor instances for conv2d."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_conv_activations, sample_conv_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
+    """Output validation for conv quantizer invocations."""
+
+    def test_output_is_tensor(
+        self, conv_quantizer, sample_conv_activations, sample_conv_weights
+    ):
+        quantizer_name, quantizer_class = conv_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_conv_activations, sample_conv_weights)
+
         assert isinstance(dqx, torch.Tensor)
         assert isinstance(dqw, torch.Tensor)
-    
-    def test_output_preserves_shape(self, quantizer, sample_conv_activations, sample_conv_weights):
-        """Test that quantizer outputs preserve input shapes for conv2d."""
-        quantizer_name, quantizer_class = quantizer
-        x, w = sample_conv_activations, sample_conv_weights
-        
-        dqx, dqw = quantizer_class.apply(x, w)
-        
-        assert dqx.shape == x.shape
-        assert dqw.shape == w.shape
+
+    def test_output_preserves_shape(
+        self, conv_quantizer, sample_conv_activations, sample_conv_weights
+    ):
+        quantizer_name, quantizer_class = conv_quantizer
+
+        dqx, dqw = quantizer_class.apply(sample_conv_activations, sample_conv_weights)
+
+        assert dqx.shape == sample_conv_activations.shape
+        assert dqw.shape == sample_conv_weights.shape
 

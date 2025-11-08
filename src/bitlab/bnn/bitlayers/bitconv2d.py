@@ -1,3 +1,5 @@
+"""Binary convolutional layer implementations built on BitLab quantization."""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,25 +11,7 @@ from bitlab.bnn.functional import bitconv2d
 
 
 class BitConv2d(Module):
-    """
-    A binary neural network Conv2d layer that quantizes weights and activations.
-
-    This layer supports two modes:
-    1. Training mode: Uses quantized weights with gradient flow
-    2. Deployed mode: Uses packed quantized weights for efficient inference
-
-    Args:
-        in_channels: Number of input channels
-        out_channels: Number of output channels
-        kernel_size: Size of the convolving kernel
-        stride: Stride of the convolution
-        padding: Padding added to all four sides of the input
-        dilation: Spacing between kernel elements
-        groups: Number of blocked connections from input channels to output channels
-        bias: Whether to include a bias term
-        eps: Small epsilon for numerical stability in quantization
-        quant_type: Quantization scheme (e.g., "ai8pc_wpt", "ai8pg128_wpt")
-    """
+    """Binary Conv2d that shares a quantization pipeline between training and deployment, supporting packed weight buffers."""
 
     def __init__(
         self,
@@ -42,6 +26,21 @@ class BitConv2d(Module):
         eps: float = 1e-6,
         quant_type: str = "ai8pc_wpt"
     ):
+        """
+        Construct a binary convolution layer with learnable parameters and quantizer.
+
+        Args:
+            in_channels: Number of input feature channels.
+            out_channels: Number of convolutional filters to produce.
+            kernel_size: Spatial size of the convolution kernel.
+            stride: Convolution stride for height and width.
+            padding: Implicit zero padding applied to the input.
+            dilation: Spacing between kernel elements.
+            groups: Number of blocked connections (as in grouped convolution).
+            bias: Whether to allocate a learnable bias term.
+            eps: Small constant injected for quantization stability.
+            quant_type: Identifier describing the activation/weight quantization pairing.
+        """
         super().__init__()
 
         self.in_channels = in_channels
@@ -54,49 +53,48 @@ class BitConv2d(Module):
         self.eps = eps
         self.quant_type = quant_type
 
-        # Initialize parameters
         self.weight = nn.Parameter(
             torch.zeros(out_channels, in_channels // groups, self.kernel_size[0], self.kernel_size[1])
         )
         self.bias = nn.Parameter(torch.zeros(out_channels)) if bias else None
 
-        # Initialize weights and quantizer
         self._init_weights()
         self.quantizer = BitQuantizer(eps=eps, quant_type=quant_type)
 
     def _init_weights(self) -> None:
-        """Initialize weights using Kaiming uniform initialization."""
+        """Use Kaiming init for weights and zeros for bias."""
         nn.init.kaiming_uniform_(self.weight, a=0, mode='fan_in', nonlinearity='relu')
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
     def _deploy(self) -> None:
-        """
-        Deploy the layer for efficient inference by:
-        1. Quantizing and packing weights
-        2. Removing original parameters
-        3. Switching to optimized forward pass
-        """
-        # Quantize and pack weights for deployment
+        """Freeze parameters into quantized buffers and switch to deploy forward."""
         qs, qw = bitconv2d.prepare_weights(self.weight, self.eps, self.quant_type)
-        bias_data = self.bias.data if self.bias is not None else None
+        bias_data = self.bias.detach().clone() if self.bias is not None else None
         del self.bias, self.weight
 
-        # Replace parameters with quantized buffers
         self.register_buffer("qws", qs)
         self.register_buffer("qw", qw)
         self.register_buffer("bias", bias_data)
 
-        # Switch to optimized forward pass
         self.forward = self._deploy_forward
 
     def _deploy_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Execute the packed-weight quantized convolution used during deployment."""
         return bitconv2d(
-            x, self.qws, self.qw, self.bias,
-            self.stride[0], self.padding[0], self.dilation[0], self.groups,
-            self.eps, self.quant_type
+            x,
+            self.qws,
+            self.qw,
+            self.bias,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+            self.eps,
+            self.quant_type,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply quantization-aware convolution suitable for training loops."""
         dqx, dqw = self.quantizer(x, self.weight)
         return F.conv2d(dqx, dqw, self.bias, self.stride, self.padding, self.dilation, self.groups)

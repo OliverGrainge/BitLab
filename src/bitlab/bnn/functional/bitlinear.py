@@ -1,13 +1,14 @@
-# /Users/olivergrainge/github/BitLab/src/bitlab/bnn/functional/bitlinear.py
+"""Functional helpers that back the deployment path for binary linear layers."""
+
 import torch
 import torch.nn.functional as F
 from typing import Optional, Tuple
 
-from bitlab.bitquantizer import quantize_weight, quantize_act, dequantize
+from bitlab.bitquantizer import quantize_weight, quantize_act, dequantize, _parse_quant_type
 
 
 class _BitLinearFunctional:
-    """Namespace + callable that mirrors the deployment API used by layers."""
+    """Deployment helper for `BitLinear` that handles quantized state."""
 
     def prepare_weights(
         self,
@@ -15,11 +16,10 @@ class _BitLinearFunctional:
         eps: float = 1e-6,
         quant_type: str = "ai8pc_wpt"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Return quantized weights plus scale that the layer can stash for deploy."""
-        # Parse quant_type: format is "{act_type}_{weight_type}" (e.g., "ai8pc_wpt")
-        weight_quant_type = quant_type.split("_")[-1]  # Extract weight type (e.g., "wpt")
-        qws, qw = quantize_weight(weight, eps, weight_quant_type)
-        return qws, qw
+        """Return weight scale and quantized tensor for deployment buffers."""
+        _, weight_quant_type = _parse_quant_type(quant_type)
+        scale, qtensor = quantize_weight(weight, eps, weight_quant_type)
+        return scale, qtensor
 
     def __call__(
         self,
@@ -30,9 +30,22 @@ class _BitLinearFunctional:
         eps: float = 1e-6,
         quant_type: str = "ai8pc_wpt"
     ) -> torch.Tensor:
+        """
+        Execute the deployment-time linear operator using packed quantized weights.
+
+        Args:
+            x: Input activation tensor expected in floating point.
+            qws: Weight scale tensor produced by `prepare_weights`.
+            qw: Packed quantized weight tensor produced by `prepare_weights`.
+            bias: Optional bias term stored alongside deployment buffers.
+            eps: Numerical stabilizer for activation quantization.
+            quant_type: Identifier that selects activation/weight quantization pair.
+
+        Returns:
+            Dequantized output tensor resulting from `F.linear`.
+        """
         dqweight = dequantize(qws, qw)
-        # Parse quant_type: format is "{act_type}_{weight_type}" (e.g., "ai8pc_wpt")
-        act_quant_type = quant_type.rsplit("_", 1)[0]  # Extract activation type (e.g., "ai8pc" or "ai8pg")
+        act_quant_type, _ = _parse_quant_type(quant_type)
         qxs, qx = quantize_act(x, eps, act_quant_type)
         dqx = dequantize(qxs, qx)
         return F.linear(dqx, dqweight, bias)

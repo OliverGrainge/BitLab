@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 import pytorch_lightning as pl
-from datasets import DatasetDict, load_dataset
 import torch
+from datasets import DatasetDict, load_dataset
 from torch.utils.data import DataLoader
 from torchvision import transforms
 

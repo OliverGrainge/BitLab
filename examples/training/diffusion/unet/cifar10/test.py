@@ -18,6 +18,7 @@ from typing import Tuple
 
 import torch
 import yaml
+
 try:
     from cleanfid import fid as cleanfid
 except ImportError as exc:
@@ -25,14 +26,12 @@ except ImportError as exc:
         "CleanFID is required. Install it with `pip install cleanfid`."
     ) from exc
 
+from bitlab.bitmodels import BitUNetConfig, BitUNetModel
+from bitlab.bittrainer import BitDDPMTrainer
 from PIL import Image
 from tqdm.auto import tqdm
 
-from bitlab.bitmodels import BitUNetConfig, BitUNetModel
-from bitlab.bittrainer import BitDDPMTrainer
-
 from datamodule import CIFAR10DataModule
-
 
 
 def get_device() -> torch.device:
