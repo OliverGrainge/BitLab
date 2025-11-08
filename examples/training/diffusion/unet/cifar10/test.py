@@ -9,19 +9,38 @@ python test.py config.yaml --checkpoint /path/to/checkpoint.ckpt
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
+import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Tuple
 
 import torch
 import yaml
-from torchmetrics.image.fid import FrechetInceptionDistance
+try:
+    from cleanfid import fid as cleanfid
+except ImportError as exc:
+    raise ImportError(
+        "CleanFID is required. Install it with `pip install cleanfid`."
+    ) from exc
+
+from PIL import Image
+from tqdm.auto import tqdm
 
 from bitlab.bitmodels import BitUNetConfig, BitUNetModel
 from bitlab.bittrainer import BitDDPMTrainer
 
 from datamodule import CIFAR10DataModule
 
+
+
+def get_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 def load_config(config_path: Path) -> dict:
     with config_path.open("r") as fp:
@@ -72,6 +91,14 @@ def load_checkpoint(module: BitDDPMTrainer, checkpoint_path: Path, device: torch
 
     module.load_state_dict(checkpoint["state_dict"])
 
+    ema_state = checkpoint.get("ema_state_dict")
+    if ema_state is not None and module.use_ema and module.ema_model is not None:
+        module.ema_model.load_state_dict(ema_state)
+    elif module.use_ema and module.ema_model is not None:
+        print(
+            "Warning: EMA state missing from checkpoint; using non-EMA weights for sampling."
+        )
+
 
 def normalise_to_unit_interval(images: torch.Tensor) -> torch.Tensor:
     # Inputs expected in [-1, 1]; convert to [0, 1]
@@ -79,11 +106,37 @@ def normalise_to_unit_interval(images: torch.Tensor) -> torch.Tensor:
     return torch.clamp(images, 0.0, 1.0)
 
 
-def update_fid_with_real_images(
-    fid: FrechetInceptionDistance,
+def to_uint8(images: torch.Tensor) -> torch.Tensor:
+    images = normalise_to_unit_interval(images)
+    images = images.mul(255.0).add(0.5).clamp(0.0, 255.0)
+    return images.to(torch.uint8)
+
+
+def save_images_to_directory(
+    images: torch.Tensor,
+    destination: Path,
+    start_index: int,
+) -> tuple[int, int, Path | None]:
+    uint8_images = to_uint8(images.detach().cpu()).permute(0, 2, 3, 1).contiguous()
+    arrays = uint8_images.numpy()
+
+    first_path: Path | None = None
+
+    for offset, array in enumerate(arrays):
+        image = Image.fromarray(array)
+        path = destination / f"{start_index + offset:06d}.png"
+        image.save(path)
+        if first_path is None:
+            first_path = path
+
+    saved = arrays.shape[0]
+    return start_index + saved, saved, first_path
+
+
+def export_real_images(
     datamodule: CIFAR10DataModule,
     num_samples: int,
-    device: torch.device,
+    destination: Path,
 ) -> int:
     datamodule.prepare_data()
     datamodule.setup(stage="val")
@@ -91,42 +144,54 @@ def update_fid_with_real_images(
     dataloader = datamodule.val_dataloader()
     collected = 0
 
-    for batch in dataloader:
-        remaining = num_samples - collected
-        if remaining <= 0:
-            break
+    with tqdm(total=num_samples, desc="Collecting real images", unit="img") as progress:
+        for batch in dataloader:
+            remaining = num_samples - collected
+            if remaining <= 0:
+                break
 
-        images = batch[:remaining].to(device)
-        images = normalise_to_unit_interval(images)
-        fid.update(images, real=True)
-        collected += images.shape[0]
+            images = batch[:remaining]
+            collected, saved, _ = save_images_to_directory(images, destination, collected)
+            progress.update(saved)
 
     return collected
 
 
-def update_fid_with_generated_images(
-    fid: FrechetInceptionDistance,
+def export_generated_images(
     module: BitDDPMTrainer,
     num_samples: int,
     batch_size: int,
     num_steps: int | None,
     use_ema: bool | None,
-) -> None:
+    destination: Path,
+    preview_path: Path | None = None,
+) -> Path | None:
     module.eval()
 
     generated = 0
-    while generated < num_samples:
-        current_batch = min(batch_size, num_samples - generated)
-        with torch.no_grad():
-            samples = module.sample_ddim(
-                batch_size=current_batch,
-                num_steps=num_steps,
-                use_ema=use_ema,
-            )
+    first_saved: Path | None = None
+    with tqdm(total=num_samples, desc="Generating samples", unit="img") as progress:
+        while generated < num_samples:
+            current_batch = min(batch_size, num_samples - generated)
+            with torch.no_grad():
+                samples = module.sample_ddim(
+                    batch_size=current_batch,
+                    num_steps=num_steps,
+                    use_ema=use_ema,
+                )
 
-        samples = normalise_to_unit_interval(samples)
-        fid.update(samples, real=False)
-        generated += samples.shape[0]
+            generated, saved, batch_first = save_images_to_directory(
+                samples, destination, generated
+            )
+            if first_saved is None and batch_first is not None:
+                first_saved = batch_first
+            progress.update(saved)
+
+    if preview_path is not None and first_saved is not None:
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(first_saved, preview_path)
+
+    return first_saved
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -138,29 +203,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         required=True,
         help="Path to the PyTorch Lightning checkpoint (.ckpt).",
     )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
-        help="Device to run evaluation on (default: automatically chosen).",
-    )
+
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=5000,
+        default=24,
         help="Number of samples to use when estimating FID.",
     )
     parser.add_argument(
         "--gen-batch-size",
         type=int,
-        default=256,
+        default=8,
         help="Batch size for diffusion sampling.",
-    )
-    parser.add_argument(
-        "--fid-feature",
-        type=int,
-        default=2048,
-        help="Inception feature dimensionality for FID.",
     )
     parser.add_argument(
         "--sample-steps",
@@ -173,6 +227,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Disable EMA weights during sampling.",
     )
+    parser.add_argument(
+        "--cleanfid-batch-size",
+        type=int,
+        default=256,
+        help="Batch size used by CleanFID when extracting features.",
+    )
+    parser.add_argument(
+        "--cleanfid-workers",
+        type=int,
+        default=0,
+        help="Number of worker processes CleanFID should use when reading images.",
+    )
 
     return parser.parse_args(argv)
 
@@ -181,7 +247,7 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
 
     torch.set_float32_matmul_precision("medium")
-    device = torch.device(args.device)
+    device = get_device()
 
     if not args.checkpoint.exists():
         raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
@@ -203,26 +269,45 @@ def main(argv: list[str]) -> int:
 
     load_checkpoint(diffusion_module, args.checkpoint, device=device)
 
-    fid = FrechetInceptionDistance(feature=args.fid_feature, normalize=True).to(device)
-
     target_samples = args.num_samples
-    real_samples = update_fid_with_real_images(fid, datamodule, target_samples, device)
-    if real_samples < target_samples:
-        print(
-            f"Warning: Requested {target_samples} real samples but only gathered {real_samples}."
+
+    with tempfile.TemporaryDirectory() as real_dir_name, tempfile.TemporaryDirectory() as gen_dir_name:
+        real_dir = Path(real_dir_name)
+        gen_dir = Path(gen_dir_name)
+
+        real_samples = export_real_images(datamodule, target_samples, real_dir)
+        if real_samples < target_samples:
+            print(
+                f"Warning: Requested {target_samples} real samples but only gathered {real_samples}."
+            )
+            target_samples = real_samples
+
+        run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        preview_sample_path = (
+            Path(__file__).resolve().parent / "logs" / "images" / run_id / "sample-000000.png"
         )
-        target_samples = real_samples
 
-    update_fid_with_generated_images(
-        fid,
-        diffusion_module,
-        target_samples,
-        args.gen_batch_size,
-        args.sample_steps,
-        None if not args.no_ema else False,
-    )
+        export_generated_images(
+            diffusion_module,
+            target_samples,
+            args.gen_batch_size,
+            args.sample_steps,
+            None if not args.no_ema else False,
+            gen_dir,
+            preview_path=preview_sample_path,
+        )
 
-    fid_score = fid.compute().item()
+        fid_score = cleanfid.compute_fid(
+            str(real_dir),
+            str(gen_dir),
+            batch_size=args.cleanfid_batch_size,
+            device=str(device),
+            num_workers=args.cleanfid_workers,
+        )
+
+    if preview_sample_path.exists():
+        print(f"Preview sample saved to {preview_sample_path}")
+
     print(f"FID score ({target_samples} samples): {fid_score:.4f}")
 
     return 0

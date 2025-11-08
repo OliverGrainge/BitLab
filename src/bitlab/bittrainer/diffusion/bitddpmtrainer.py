@@ -53,6 +53,36 @@ class EMAModel:
                 param.data.copy_(self.backup[name].to(param.device, dtype=param.dtype))
         self.backup = {}
 
+    def state_dict(self) -> dict:
+        """Return EMA shadow parameters for checkpointing."""
+        return {
+            "decay": self.decay,
+            "shadow": {name: param.detach().cpu() for name, param in self.shadow.items()},
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """Load EMA shadow parameters from a checkpoint."""
+        self.decay = state.get("decay", self.decay)
+        shadow = state.get("shadow", {})
+
+        # Ensure shadows live on the same device/dtype as the model parameters
+        model_param = next(self.model.parameters())
+        device = model_param.device
+        dtype = model_param.dtype
+
+        self.shadow = {}
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+
+            if name in shadow:
+                self.shadow[name] = shadow[name].to(device=device, dtype=dtype)
+            else:
+                # Fall back to the current parameter value if checkpoint is missing the shadow
+                self.shadow[name] = param.data.detach().clone()
+
+        self.backup = {}
+
 
 def get_beta_schedule(
     schedule: str,
@@ -460,6 +490,17 @@ class BitDDPMTrainer(pl.LightningModule):
         
         model.train()
         return x
+
+    def on_save_checkpoint(self, checkpoint: dict) -> None:
+        """Persist EMA state alongside standard weights."""
+        if self.ema_model is not None:
+            checkpoint["ema_state_dict"] = self.ema_model.state_dict()
+
+    def on_load_checkpoint(self, checkpoint: dict) -> None:
+        """Restore EMA state when available."""
+        ema_state = checkpoint.get("ema_state_dict")
+        if ema_state is not None and self.ema_model is not None:
+            self.ema_model.load_state_dict(ema_state)
     
     def on_validation_epoch_end(self):
         """Generate and log sample images at the end of validation."""

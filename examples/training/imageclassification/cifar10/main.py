@@ -115,9 +115,10 @@ def main(config_path: str) -> None:
     
     # Set up output directories in the current working directory
     output_dir = Path.cwd()
-    checkpoint_dir = output_dir / "checkpoints"
+    config_name = Path(config_path).stem
+    checkpoint_dir = output_dir / "checkpoints" / config_name
     log_dir = output_dir / "logs"
-    checkpoint_dir.mkdir(exist_ok=True)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(exist_ok=True)
     
     print(f"Layer type: {config['model']['layer_type']}")
