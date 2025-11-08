@@ -1,47 +1,60 @@
 # Training Configuration for BitUNet DDPM on CIFAR10
 
 # Trainer settings
-max_steps: 100000
-accelerator: "auto"  # Options: "auto", "gpu", "cpu", "tpu"
-devices: "auto"      # Options: "auto", "1", "0,1", etc.
-precision: "32-true" # Options: "32-true", "16-mixed", "bf16-mixed"
-grad_clip_val: 0.0   # 0 disables gradient clipping
-accumulate_grad_batches: 1
-log_every_n_steps: 50
-validate_every_n_steps: 5000  # Set to 0 to disable automatic validation
+max_steps: 800000  # CIFAR-10 benefits from longer training
+accelerator: "auto"
+devices: "auto"
+precision: "bf16-mixed"  # Good choice for modern GPUs
+grad_clip_val: 1.0  # Enable gradient clipping for stability
+accumulate_grad_batches: 1  # Reduce if batch size allows
+log_every_n_steps: 100
+validate_every_n_steps: 5000  # More frequent validation
 
 # Data settings
-train_batch_size: 32
-val_batch_size: 64
-num_workers: 0
-val_split: 0.02  # Fraction of training data to reserve for validation
+train_batch_size: 128  # Good if GPU memory allows, else reduce to 64
+val_batch_size: 128  # Match train batch size
+num_workers: 4  # Speed up data loading (adjust based on CPU cores)
+val_split: 0.02
 seed: 42
 
 # Optimizer settings
-learning_rate: 0.0001  # 1e-4
+learning_rate: 0.0001  # Lower LR is more stable for diffusion models
 weight_decay: 0.0
-optimizer: "adamw"  # Options: "adam", "adamw"
+optimizer: "adamw"
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_epsilon: 1.0e-8
+
+# Learning rate scheduler settings
+lr_warmup_steps: 5000  # Longer warmup for stability
+lr_scheduler: "constant"  # Constant works well after warmup
+max_lr_steps: null
 
 # Diffusion settings
-beta_schedule: "linear"  # Options: "linear", "cosine", "quadratic"
+beta_schedule: "linear"  # Linear is standard and works well
+beta_start: 0.0001
+beta_end: 0.02
 num_timesteps: 1000
-loss_type: "l2"  # Options: "l1", "l2", "huber"
-prediction_type: "epsilon"  # Options: "epsilon", "x0", "v"
-use_ema: true  # Enable/disable EMA tracking
+loss_type: "l2"  # L2 is standard for DDPM
+prediction_type: "epsilon"  # Standard noise prediction
+
+# EMA settings
+use_ema: true
+ema_decay: 0.9999  # Good default
 
 # Sampling settings
-num_sample_steps: 50  # Number of DDIM sampling steps during validation
-sample_every_n_steps: 1000  # How often to generate samples
-num_samples: 16  # Number of samples to log when sampling
+num_sample_steps: 250  # Use more steps for better quality validation samples
+sample_every_n_steps: 5000
+num_samples: 16
 
 # Model architecture settings
 model:
   image_size: 32
   in_channels: 3
   out_channels: 3
-  model_channels: 128
-  attention_resolutions: [1, 2, 4]  # Add attention at these resolution scales
+  model_channels: 128  # Good base for CIFAR-10
+  attention_resolutions: [2]  # Only at 16x16, sufficient for 32x32 images
   num_heads: 4
-  num_res_blocks: 3
-  channel_mult: [1, 2, 2, 2]  # Channel multipliers per resolution level
-
+  num_res_blocks: 2
+  channel_mult: [1, 2, 2, 2]  # Good progression for 32x32
+  dropout: 0.1  # Good regularization level

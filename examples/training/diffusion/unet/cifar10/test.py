@@ -221,13 +221,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--num-samples",
         type=int,
-        default=24,
+        default=5000,
         help="Number of samples to use when estimating FID.",
     )
     parser.add_argument(
         "--gen-batch-size",
         type=int,
-        default=8,
+        default=256,
         help="Batch size for diffusion sampling.",
     )
     parser.add_argument(

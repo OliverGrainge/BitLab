@@ -57,6 +57,7 @@ def main(config_path: str) -> None:
         num_heads=config["model"]["num_heads"],
         num_res_blocks=config["model"]["num_res_blocks"],
         channel_mult=tuple(config["model"]["channel_mult"]),
+        dropout=config["model"]["dropout"],
     )
     
     model = BitUNetModel(model_config)
@@ -65,17 +66,31 @@ def main(config_path: str) -> None:
         model=model,
         image_size=model_config.image_size,
         in_channels=model_config.in_channels,
-        learning_rate=config["learning_rate"],
-        weight_decay=config["weight_decay"],
-        optimizer=config["optimizer"],
+        # Diffusion parameters
         num_timesteps=config["num_timesteps"],
         beta_schedule=config["beta_schedule"],
+        beta_start=config["beta_start"],
+        beta_end=config["beta_end"],
+        # Loss configuration
         loss_type=config["loss_type"],
         prediction_type=config["prediction_type"],
+        # Training parameters
+        learning_rate=config["learning_rate"],
+        lr_warmup_steps=config["lr_warmup_steps"],
+        lr_scheduler=config["lr_scheduler"],
+        max_lr_steps=config["max_lr_steps"],
         use_ema=config["use_ema"],
+        ema_decay=config["ema_decay"],
+        # Sampling parameters
         num_sample_steps=config["num_sample_steps"],
         sample_every_n_steps=config["sample_every_n_steps"],
         num_samples=config["num_samples"],
+        # Optimizer parameters
+        optimizer=config["optimizer"],
+        weight_decay=config["weight_decay"],
+        adam_beta1=config["adam_beta1"],
+        adam_beta2=config["adam_beta2"],
+        adam_epsilon=config["adam_epsilon"],
     )
 
     checkpoint_callback = ModelCheckpoint(
