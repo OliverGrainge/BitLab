@@ -58,3 +58,4 @@ model:
   num_res_blocks: 2
   channel_mult: [1, 2, 2, 2]  # Good progression for 32x32
   dropout: 0.1  # Good regularization level
+  quant_type: ai8pc_wpt

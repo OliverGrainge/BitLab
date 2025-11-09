@@ -47,6 +47,7 @@ def load_config(config_path: Path) -> dict:
 
 
 def build_diffusion_module(config: dict) -> Tuple[BitDDPMTrainer, BitUNetConfig]:
+    quant_type = config["model"].get("quant_type", BitUNetConfig.model_fields["quant_type"].default)
     model_cfg = BitUNetConfig(
         image_size=config["model"]["image_size"],
         in_channels=config["model"]["in_channels"],
@@ -56,6 +57,8 @@ def build_diffusion_module(config: dict) -> Tuple[BitDDPMTrainer, BitUNetConfig]
         num_heads=config["model"]["num_heads"],
         num_res_blocks=config["model"]["num_res_blocks"],
         channel_mult=tuple(config["model"]["channel_mult"]),
+        dropout=config["model"]["dropout"],
+        quant_type=quant_type,
     )
 
     model = BitUNetModel(model_cfg)

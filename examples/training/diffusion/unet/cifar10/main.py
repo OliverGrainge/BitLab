@@ -52,6 +52,9 @@ def main(config_path: str) -> None:
         seed=config["seed"],
     )
 
+    quant_type = config["model"].get("quant_type", BitUNetConfig.model_fields["quant_type"].default)
+    print(f"Quantization type: {quant_type}")
+
     model_config = BitUNetConfig(
         image_size=config["model"]["image_size"],
         in_channels=config["model"]["in_channels"],
@@ -62,6 +65,7 @@ def main(config_path: str) -> None:
         num_res_blocks=config["model"]["num_res_blocks"],
         channel_mult=tuple(config["model"]["channel_mult"]),
         dropout=config["model"]["dropout"],
+        quant_type=quant_type,
     )
     
     model = BitUNetModel(model_config)
