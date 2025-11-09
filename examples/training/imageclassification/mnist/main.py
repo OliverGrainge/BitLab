@@ -13,6 +13,11 @@ import torch.multiprocessing as mp
 import torch.nn as nn
 import yaml
 from bitlab.bittrainer.classification import BitImageClassifierTrainer
+from bitlab.bittrainer.callbacks import (
+    ClassificationVisualizationLogger,
+    GradientNormLogger,
+    WeightHistogramLogger,
+)
 from bitlab.bnn import BitLinear, Module
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
@@ -169,6 +174,16 @@ def main(config_path: str) -> None:
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
+    logging_callbacks = [
+        GradientNormLogger(every_n_steps=config.get("grad_norm_log_every_n_steps", 100)),
+        WeightHistogramLogger(log_every_n_epochs=config.get("weight_histogram_log_every_n_epochs", 1)),
+        ClassificationVisualizationLogger(
+            num_samples_to_log=config.get("num_samples_to_log", 16),
+            log_samples_every_n_epochs=config.get("log_samples_every_n_epochs", 5),
+            log_confusion_matrix=config.get("log_confusion_matrix", True),
+        ),
+    ]
+
     # Logger
     logger = WandbLogger(
         project=config["wandb_project"],
@@ -188,7 +203,7 @@ def main(config_path: str) -> None:
         accumulate_grad_batches=config.get("accumulate_grad_batches", 1),
         log_every_n_steps=config["log_every_n_steps"],
         logger=logger,
-        callbacks=[checkpoint_callback, lr_monitor],
+        callbacks=[checkpoint_callback, lr_monitor, *logging_callbacks],
         deterministic=False,
         enable_progress_bar=True,
     )

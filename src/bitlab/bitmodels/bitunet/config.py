@@ -18,6 +18,7 @@ class BitUNetConfig(BaseBitModelConfig):
         channel_mult: Channel multiplier for each resolution level (e.g., (1, 2, 4, 8))
         num_heads: Number of attention heads
         use_scale_shift_norm: Whether to use scale+shift normalization in residual blocks
+        quant_type: Identifier of the quantization scheme to use for BitConv layers
     """
     model_type: Literal["bitunet"] = Field(default="bitunet", frozen=True)
     image_size: int = Field(default=64)
@@ -30,3 +31,4 @@ class BitUNetConfig(BaseBitModelConfig):
     channel_mult: Tuple[int, ...] = Field(default=(1, 2, 3, 4))
     num_heads: int = Field(default=4)
     use_scale_shift_norm: bool = Field(default=True)
+    quant_type: str = Field(default="ai8pc_wpt")

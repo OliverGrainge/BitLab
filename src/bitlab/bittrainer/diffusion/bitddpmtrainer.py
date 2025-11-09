@@ -6,33 +6,43 @@ with support for various noise schedules, loss types, and sampling strategies.
 """
 
 import math
-from typing import Optional, Literal, Tuple, List
-from pathlib import Path
+from typing import Optional, Literal, Dict, Any
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-import torchvision
 
-from bitlab.bitmodels.auto import BitAutoModel
-from bitlab.bitmodels.unet.config import BitUNetConfig
+from bitlab.bittrainer.callbacks import (
+    DiffusionSampleLogger,
+    GradientNormLogger,
+    WeightHistogramLogger,
+)
 
 
 class EMAModel:
     """Exponential Moving Average of model parameters."""
     
     def __init__(self, model: nn.Module, decay: float = 0.9999):
+        """
+        Initialize EMA model.
+        
+        Args:
+            model: Model to track
+            decay: EMA decay rate
+        """
         self.model = model
         self.decay = decay
         self.shadow = {}
         self.backup = {}
         
+        # Initialize shadow parameters
         for name, param in model.named_parameters():
             if param.requires_grad:
                 self.shadow[name] = param.data.detach().clone()
     
-    def update(self):
+    def update(self) -> None:
+        """Update shadow parameters with current model parameters."""
         for name, param in self.model.named_parameters():
             if param.requires_grad:
                 assert name in self.shadow
@@ -40,32 +50,34 @@ class EMAModel:
                 new_average = (1.0 - self.decay) * param.data + self.decay * shadow
                 self.shadow[name] = new_average.detach().clone()
     
-    def apply_shadow(self):
+    def apply_shadow(self) -> None:
+        """Apply shadow parameters to model (backup current parameters)."""
         for name, param in self.model.named_parameters():
             if param.requires_grad:
                 self.backup[name] = param.data.detach().clone()
                 shadow = self.shadow[name].to(param.device, dtype=param.dtype)
                 param.data.copy_(shadow)
     
-    def restore(self):
+    def restore(self) -> None:
+        """Restore original parameters from backup."""
         for name, param in self.model.named_parameters():
-            if param.requires_grad:
+            if param.requires_grad and name in self.backup:
                 param.data.copy_(self.backup[name].to(param.device, dtype=param.dtype))
         self.backup = {}
 
-    def state_dict(self) -> dict:
-        """Return EMA shadow parameters for checkpointing."""
+    def state_dict(self) -> Dict[str, Any]:
+        """Return EMA state for checkpointing."""
         return {
             "decay": self.decay,
             "shadow": {name: param.detach().cpu() for name, param in self.shadow.items()},
         }
 
-    def load_state_dict(self, state: dict) -> None:
-        """Load EMA shadow parameters from a checkpoint."""
+    def load_state_dict(self, state: Dict[str, Any]) -> None:
+        """Load EMA state from checkpoint."""
         self.decay = state.get("decay", self.decay)
         shadow = state.get("shadow", {})
 
-        # Ensure shadows live on the same device/dtype as the model parameters
+        # Get device and dtype from model
         model_param = next(self.model.parameters())
         device = model_param.device
         dtype = model_param.dtype
@@ -74,11 +86,11 @@ class EMAModel:
         for name, param in self.model.named_parameters():
             if not param.requires_grad:
                 continue
-
+            
             if name in shadow:
                 self.shadow[name] = shadow[name].to(device=device, dtype=dtype)
             else:
-                # Fall back to the current parameter value if checkpoint is missing the shadow
+                # Fallback to current parameter value if missing
                 self.shadow[name] = param.data.detach().clone()
 
         self.backup = {}
@@ -101,14 +113,17 @@ def get_beta_schedule(
     
     Returns:
         Beta values for each timestep
+    
+    Raises:
+        ValueError: If schedule type is unknown
     """
     if schedule == "linear":
         return torch.linspace(beta_start, beta_end, num_timesteps)
     
     elif schedule == "cosine":
-        # Cosine schedule as proposed in "Improved Denoising Diffusion Probabilistic Models"
+        # Cosine schedule from "Improved Denoising Diffusion Probabilistic Models"
         steps = num_timesteps + 1
-        s = 0.008
+        s = 0.008  # Small offset to prevent beta from being too small near t=0
         x = torch.linspace(0, num_timesteps, steps)
         alphas_cumprod = torch.cos(((x / num_timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
@@ -133,24 +148,36 @@ class BitDDPMTrainer(pl.LightningModule):
     - DDIM sampling for fast inference
     
     Args:
-        model: The denoising model (e.g., BitUNetModel instance)
-        image_size: Size of images for sampling (must match model's expected input)
-        in_channels: Number of input channels (must match model's expected input)
+        model: The denoising model (e.g., UNet)
+        image_size: Size of images for sampling
+        in_channels: Number of input channels (default: 3)
+        
+        # Diffusion parameters
         num_timesteps: Number of diffusion timesteps (default: 1000)
-        beta_schedule: Noise schedule type - "linear", "cosine", or "quadratic" (default: "linear")
-        beta_start: Starting beta value for linear schedule (default: 0.0001)
-        beta_end: Ending beta value for linear schedule (default: 0.02)
+        beta_schedule: Noise schedule type (default: "linear")
+        beta_start: Starting beta value (default: 0.0001)
+        beta_end: Ending beta value (default: 0.02)
+        
+        # Loss configuration
         loss_type: Loss function - "l1", "l2", or "huber" (default: "l2")
         prediction_type: What model predicts - "epsilon", "x0", or "v" (default: "epsilon")
+        
+        # Training parameters
         learning_rate: Learning rate (default: 1e-4)
         lr_warmup_steps: Number of warmup steps (default: 1000)
-        lr_scheduler: Learning rate schedule after warmup - "constant", "linear", or "cosine" (default: "constant")
-        max_lr_steps: Maximum steps for lr decay (required for linear/cosine, ignored for constant)
+        lr_scheduler: LR schedule - "constant", "linear", or "cosine" (default: "constant")
+        max_lr_steps: Maximum steps for lr decay (required for linear/cosine)
+        
+        # EMA parameters
         use_ema: Use exponential moving average (default: True)
         ema_decay: EMA decay rate (default: 0.9999)
+        
+        # Sampling parameters
         num_sample_steps: Number of DDIM sampling steps (default: 50)
         sample_every_n_steps: Generate samples every N steps (default: 1000)
         num_samples: Number of samples to generate (default: 16)
+        
+        # Optimizer parameters
         optimizer: Optimizer type - "adam" or "adamw" (default: "adamw")
         weight_decay: Weight decay (default: 0.0)
         adam_beta1: Adam beta1 (default: 0.9)
@@ -176,6 +203,7 @@ class BitDDPMTrainer(pl.LightningModule):
         lr_warmup_steps: int = 1000,
         lr_scheduler: Literal["constant", "linear", "cosine"] = "constant",
         max_lr_steps: Optional[int] = None,
+        # EMA parameters
         use_ema: bool = True,
         ema_decay: float = 0.9999,
         # Sampling parameters
@@ -192,10 +220,8 @@ class BitDDPMTrainer(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         
-        # Store model
+        # Store model and parameters
         self.model = model
-        
-        # Store parameters
         self.image_size = image_size
         self.in_channels = in_channels
         self.num_timesteps = num_timesteps
@@ -206,7 +232,7 @@ class BitDDPMTrainer(pl.LightningModule):
         self.prediction_type = prediction_type
         self.learning_rate = learning_rate
         self.lr_warmup_steps = lr_warmup_steps
-        self.lr_scheduler = lr_scheduler
+        self.lr_scheduler_type = lr_scheduler
         self.max_lr_steps = max_lr_steps
         self.use_ema = use_ema
         self.ema_decay = ema_decay
@@ -220,50 +246,41 @@ class BitDDPMTrainer(pl.LightningModule):
         self.adam_epsilon = adam_epsilon
         
         # Setup EMA
-        if use_ema:
-            self.ema_model = EMAModel(self.model, decay=ema_decay)
-        else:
-            self.ema_model = None
+        self.ema_model = EMAModel(self.model, decay=ema_decay) if use_ema else None
         
         # Setup diffusion schedule
-        self.register_diffusion_schedule(
-            beta_schedule,
-            num_timesteps,
-            beta_start,
-            beta_end
+        self._setup_diffusion_schedule()
+        
+        # For consistent validation sampling
+        self.validation_noise = None
+    
+    def _setup_diffusion_schedule(self) -> None:
+        """Register diffusion schedule parameters as buffers."""
+        betas = get_beta_schedule(
+            self.beta_schedule,
+            self.num_timesteps,
+            self.beta_start,
+            self.beta_end
         )
         
-        # Validation image tracking
-        self.validation_z = None
-    
-    def register_diffusion_schedule(
-        self,
-        schedule: str,
-        num_timesteps: int,
-        beta_start: float,
-        beta_end: float
-    ):
-        """Register diffusion schedule parameters as buffers."""
-        betas = get_beta_schedule(schedule, num_timesteps, beta_start, beta_end)
-        
+        # Calculate alpha values
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
         
-        # Register as buffers so they're moved to the correct device
+        # Register core schedule parameters
         self.register_buffer("betas", betas)
         self.register_buffer("alphas", alphas)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
         self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
         
-        # Calculations for diffusion q(x_t | x_{t-1})
+        # Precalculated values for forward diffusion q(x_t | x_0)
         self.register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
         self.register_buffer("sqrt_one_minus_alphas_cumprod", torch.sqrt(1.0 - alphas_cumprod))
-        self.register_buffer("log_one_minus_alphas_cumprod", torch.log(1.0 - alphas_cumprod))
         self.register_buffer("sqrt_recip_alphas_cumprod", torch.sqrt(1.0 / alphas_cumprod))
         self.register_buffer("sqrt_recipm1_alphas_cumprod", torch.sqrt(1.0 / alphas_cumprod - 1))
         
-        # Calculations for posterior q(x_{t-1} | x_t, x_0)
+        # Precalculated values for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
         self.register_buffer("posterior_variance", posterior_variance)
         self.register_buffer(
@@ -281,51 +298,89 @@ class BitDDPMTrainer(pl.LightningModule):
     
     def q_sample(self, x_start: torch.Tensor, t: torch.Tensor, noise: torch.Tensor) -> torch.Tensor:
         """
-        Forward diffusion process: sample x_t from q(x_t | x_0).
+        Forward diffusion: sample x_t from q(x_t | x_0).
         
         Args:
             x_start: Original images [B, C, H, W]
             t: Timesteps [B]
-            noise: Sampled noise [B, C, H, W]
+            noise: Gaussian noise [B, C, H, W]
         
         Returns:
             Noisy images at timestep t
         """
-        sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t][:, None, None, None]
-        sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t][:, None, None, None]
+        # Extract coefficients for timestep t
+        sqrt_alphas_cumprod_t = self._extract(self.sqrt_alphas_cumprod, t, x_start.shape)
+        sqrt_one_minus_alphas_cumprod_t = self._extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
         
         return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
     
-    def get_target(
+    def _extract(self, values: torch.Tensor, t: torch.Tensor, x_shape: torch.Size) -> torch.Tensor:
+        """
+        Extract values from a 1D tensor for a batch of indices.
+        
+        Args:
+            values: 1D tensor of values
+            t: Batch of indices [B]
+            x_shape: Shape of tensor to extract for
+        
+        Returns:
+            Extracted values reshaped for broadcasting
+        """
+        batch_size = t.shape[0]
+        out = values.gather(-1, t)
+        # Reshape to [batch_size, 1, 1, 1] for broadcasting
+        return out.reshape(batch_size, *((1,) * (len(x_shape) - 1)))
+    
+    def compute_training_target(
         self,
         x_start: torch.Tensor,
         noise: torch.Tensor,
         t: torch.Tensor
     ) -> torch.Tensor:
-        """Get training target based on prediction type."""
+        """
+        Compute training target based on prediction type.
+        
+        Args:
+            x_start: Original images [B, C, H, W]
+            noise: Gaussian noise [B, C, H, W]
+            t: Timesteps [B]
+        
+        Returns:
+            Training target
+        """
         if self.prediction_type == "epsilon":
             return noise
         elif self.prediction_type == "x0":
             return x_start
         elif self.prediction_type == "v":
-            # v-prediction: v = sqrt(alpha_bar) * noise - sqrt(1 - alpha_bar) * x_start
-            sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t][:, None, None, None]
-            sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t][:, None, None, None]
+            # v-parameterization: v = sqrt(alpha_bar) * noise - sqrt(1 - alpha_bar) * x_start
+            sqrt_alphas_cumprod_t = self._extract(self.sqrt_alphas_cumprod, t, x_start.shape)
+            sqrt_one_minus_alphas_cumprod_t = self._extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
             return sqrt_alphas_cumprod_t * noise - sqrt_one_minus_alphas_cumprod_t * x_start
         else:
             raise ValueError(f"Unknown prediction type: {self.prediction_type}")
     
-    def predict_x0_from_output(
+    def predict_x0_from_model_output(
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
         model_output: torch.Tensor
     ) -> torch.Tensor:
-        """Convert model output to x0 prediction."""
+        """
+        Convert model output to x0 prediction based on parameterization.
+        
+        Args:
+            x_t: Noisy images at timestep t [B, C, H, W]
+            t: Timesteps [B]
+            model_output: Model prediction [B, C, H, W]
+        
+        Returns:
+            Predicted x0
+        """
         if self.prediction_type == "epsilon":
             # x0 = (x_t - sqrt(1 - alpha_bar) * epsilon) / sqrt(alpha_bar)
-            sqrt_recip_alphas_cumprod_t = self.sqrt_recip_alphas_cumprod[t][:, None, None, None]
-            sqrt_recipm1_alphas_cumprod_t = self.sqrt_recipm1_alphas_cumprod[t][:, None, None, None]
+            sqrt_recip_alphas_cumprod_t = self._extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape)
+            sqrt_recipm1_alphas_cumprod_t = self._extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
             return sqrt_recip_alphas_cumprod_t * x_t - sqrt_recipm1_alphas_cumprod_t * model_output
         
         elif self.prediction_type == "x0":
@@ -333,15 +388,24 @@ class BitDDPMTrainer(pl.LightningModule):
         
         elif self.prediction_type == "v":
             # x0 = sqrt(alpha_bar) * x_t - sqrt(1 - alpha_bar) * v
-            sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t][:, None, None, None]
-            sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t][:, None, None, None]
+            sqrt_alphas_cumprod_t = self._extract(self.sqrt_alphas_cumprod, t, x_t.shape)
+            sqrt_one_minus_alphas_cumprod_t = self._extract(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape)
             return sqrt_alphas_cumprod_t * x_t - sqrt_one_minus_alphas_cumprod_t * model_output
         
         else:
             raise ValueError(f"Unknown prediction type: {self.prediction_type}")
     
-    def get_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """Compute loss based on loss type."""
+    def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Compute loss based on configured loss type.
+        
+        Args:
+            pred: Model predictions
+            target: Ground truth targets
+        
+        Returns:
+            Loss value
+        """
         if self.loss_type == "l1":
             return F.l1_loss(pred, target)
         elif self.loss_type == "l2":
@@ -351,51 +415,49 @@ class BitDDPMTrainer(pl.LightningModule):
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
     
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the model."""
+        return self.model(x, t)
+    
     def training_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
         """Training step."""
         x_start = batch
         batch_size = x_start.shape[0]
         
-        # Sample random timesteps
+        # Sample random timesteps uniformly
         t = torch.randint(0, self.num_timesteps, (batch_size,), device=self.device)
         
-        # Sample noise
+        # Sample Gaussian noise
         noise = torch.randn_like(x_start)
         
-        # Forward diffusion
+        # Forward diffusion process
         x_t = self.q_sample(x_start, t, noise)
         
-        # Predict
-        model_output = self.model(x_t, t)
+        # Predict with model
+        model_output = self(x_t, t)
         
-        # Get target
-        target = self.get_target(x_start, noise, t)
+        # Compute target based on prediction type
+        target = self.compute_training_target(x_start, noise, t)
         
         # Compute loss
-        loss = self.get_loss(model_output, target)
+        loss = self.compute_loss(model_output, target)
         
-        # Log
-        self.log("train/loss", loss, prog_bar=True)
+        # Log metrics
+        self.log("train/loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        
+        # Log learning rate
+        if self.trainer.optimizers:
+            lr = self.trainer.optimizers[0].param_groups[0]['lr']
+            self.log("train/lr", lr, on_step=True, on_epoch=False)
         
         return loss
 
-    def on_before_optimizer_step(self, optimizer):
-        """
-        Called after loss.backward() but before optimizer.step().
-        Use this hook to log gradient statistics while grads are fresh.
-        """
-        if self.logger is None:
-            return
-
-        if self.global_step % 100 == 0:
-            self._log_gradient_norms_by_type()
-    
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        """Update EMA after each training batch."""
+    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
+        """Update EMA model after each training batch."""
         if self.ema_model is not None:
             self.ema_model.update()
     
-    def validation_step(self, batch: torch.Tensor, batch_idx: int):
+    def validation_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
         """Validation step - compute validation loss."""
         x_start = batch
         batch_size = x_start.shape[0]
@@ -409,16 +471,16 @@ class BitDDPMTrainer(pl.LightningModule):
         # Forward diffusion
         x_t = self.q_sample(x_start, t, noise)
         
-        # Predict
-        model_output = self.model(x_t, t)
+        # Predict with model
+        model_output = self(x_t, t)
         
-        # Get target
-        target = self.get_target(x_start, noise, t)
+        # Compute target
+        target = self.compute_training_target(x_start, noise, t)
         
         # Compute loss
-        loss = self.get_loss(model_output, target)
+        loss = self.compute_loss(model_output, target)
         
-        # Log
+        # Log metrics
         self.log("val/loss", loss, prog_bar=True, sync_dist=True)
         
         return loss
@@ -429,287 +491,138 @@ class BitDDPMTrainer(pl.LightningModule):
         batch_size: int,
         num_steps: Optional[int] = None,
         eta: float = 0.0,
-        use_ema: Optional[bool] = None
+        temperature: float = 1.0,
+        use_ema: Optional[bool] = None,
+        noise: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
         Sample using DDIM (Denoising Diffusion Implicit Models).
         
         Args:
             batch_size: Number of samples to generate
-            num_steps: Number of denoising steps (default: uses self.num_sample_steps)
-            eta: DDIM eta parameter (0 = deterministic, 1 = DDPM)
-            use_ema: Use EMA model if available (default: uses self.use_ema)
+            num_steps: Number of denoising steps (default: self.num_sample_steps)
+            eta: DDIM stochasticity (0 = deterministic, 1 = DDPM)
+            temperature: Noise temperature for sampling
+            use_ema: Use EMA model if available (default: self.use_ema)
+            noise: Initial noise (if None, sample random noise)
         
         Returns:
             Generated images [B, C, H, W]
         """
+        # Set defaults
         if num_steps is None:
             num_steps = self.num_sample_steps
         if use_ema is None:
             use_ema = self.use_ema
-            
+        
+        # Setup model
         model = self.model
         if use_ema and self.ema_model is not None:
             self.ema_model.apply_shadow()
         
         model.eval()
         
-        # Create time steps for DDIM - uniformly spaced, including timestep 0
+        # Create timestep schedule for DDIM
         c = self.num_timesteps // num_steps
-        ddim_timesteps = torch.arange(num_steps, device=self.device) * c
+        ddim_timesteps = torch.arange(0, self.num_timesteps, c, device=self.device)
         ddim_timesteps_prev = torch.cat([torch.tensor([-1], device=self.device), ddim_timesteps[:-1]])
         
-        # Start from random noise
-        x = torch.randn(batch_size, self.in_channels, self.image_size, self.image_size, device=self.device)
+        # Start from noise
+        if noise is None:
+            x = torch.randn(batch_size, self.in_channels, self.image_size, self.image_size, device=self.device)
+            x = x * temperature
+        else:
+            x = noise
         
-        # Iterative denoising
+        # Reverse diffusion process
         for i in reversed(range(len(ddim_timesteps))):
             t = ddim_timesteps[i]
-            t_prev = ddim_timesteps_prev[i]
+            t_prev = ddim_timesteps_prev[i] if i > 0 else torch.tensor(-1, device=self.device)
             
-            # Expand timestep to batch dimension
+            # Expand timestep to batch
             t_batch = torch.full((batch_size,), t, device=self.device, dtype=torch.long)
             
-            # Predict noise/x0/v
+            # Model prediction
             model_output = model(x, t_batch)
             
             # Predict x0
-            pred_x0 = self.predict_x0_from_output(x, t_batch, model_output)
+            pred_x0 = self.predict_x0_from_model_output(x, t_batch, model_output)
             pred_x0 = torch.clamp(pred_x0, -1.0, 1.0)
             
-            # Get alpha values
-            alpha_t = self.alphas_cumprod[t]
-            alpha_t_prev = self.alphas_cumprod[t_prev] if t_prev >= 0 else torch.tensor(1.0, device=self.device)
-            
-            # Compute sigma
-            sigma_t = eta * torch.sqrt((1 - alpha_t_prev) / (1 - alpha_t) * (1 - alpha_t / alpha_t_prev))
-            
-            # Compute predicted noise
-            if self.prediction_type == "epsilon":
-                pred_noise = model_output
+            if i > 0:
+                # Get alpha values
+                alpha_t = self.alphas_cumprod[t]
+                alpha_t_prev = self.alphas_cumprod[t_prev] if t_prev >= 0 else torch.tensor(1.0, device=self.device)
+                
+                # Compute variance
+                sigma_t = eta * torch.sqrt((1 - alpha_t_prev) / (1 - alpha_t) * (1 - alpha_t / alpha_t_prev))
+                
+                # Predict noise
+                if self.prediction_type == "epsilon":
+                    pred_noise = model_output
+                else:
+                    # Reconstruct noise from x0 prediction
+                    pred_noise = (x - torch.sqrt(alpha_t) * pred_x0) / torch.sqrt(1 - alpha_t)
+                
+                # Compute x_{t-1}
+                dir_xt = torch.sqrt(1 - alpha_t_prev - sigma_t ** 2) * pred_noise
+                noise = torch.randn_like(x) * temperature if sigma_t > 0 else 0
+                x = torch.sqrt(alpha_t_prev) * pred_x0 + dir_xt + sigma_t * noise
             else:
-                # Reconstruct noise from x0 prediction
-                pred_noise = (x - torch.sqrt(alpha_t) * pred_x0) / torch.sqrt(1 - alpha_t)
-            
-            # Compute x_{t-1}
-            dir_xt = torch.sqrt(1 - alpha_t_prev - sigma_t ** 2) * pred_noise
-            noise = torch.randn_like(x) if i > 0 else torch.zeros_like(x)
-            x = torch.sqrt(alpha_t_prev) * pred_x0 + dir_xt + sigma_t * noise
+                # Final step
+                x = pred_x0
         
+        # Restore model if using EMA
         if use_ema and self.ema_model is not None:
             self.ema_model.restore()
         
         model.train()
         return x
+    
+    @torch.no_grad()
+    def sample_ddpm(
+        self,
+        batch_size: int,
+        use_ema: Optional[bool] = None,
+        noise: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """
+        Sample using original DDPM method (full Markov chain).
+        
+        Args:
+            batch_size: Number of samples to generate
+            use_ema: Use EMA model if available
+            noise: Initial noise (if None, sample random noise)
+        
+        Returns:
+            Generated images [B, C, H, W]
+        """
+        return self.sample_ddim(
+            batch_size=batch_size,
+            num_steps=self.num_timesteps,
+            eta=1.0,
+            use_ema=use_ema,
+            noise=noise
+        )
 
-    def on_save_checkpoint(self, checkpoint: dict) -> None:
-        """Persist EMA state alongside standard weights."""
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Save EMA state with checkpoint."""
         if self.ema_model is not None:
             checkpoint["ema_state_dict"] = self.ema_model.state_dict()
 
-    def on_load_checkpoint(self, checkpoint: dict) -> None:
-        """Restore EMA state when available."""
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Load EMA state from checkpoint."""
         ema_state = checkpoint.get("ema_state_dict")
         if ema_state is not None and self.ema_model is not None:
             self.ema_model.load_state_dict(ema_state)
     
-    def on_validation_epoch_end(self):
-        """Generate and log sample images at the end of validation."""
-        if self.logger is not None:
-            self._log_weight_histograms_by_type()
-        
-        # Generate samples at the end of every validation epoch
-        samples = self.sample_ddim(
-            batch_size=self.num_samples,
-            num_steps=self.num_sample_steps,
-            use_ema=self.use_ema
-        )
-        
-        # Compute statistics on raw samples (before normalization) for mode collapse detection
-        # These metrics help detect if the model is collapsing to similar outputs
-        
-        # Per-sample statistics (averaged across batch)
-        sample_means = samples.mean(dim=[1, 2, 3])  # [B]
-        sample_stds = samples.std(dim=[1, 2, 3])    # [B]
-        
-        # Average statistics across batch
-        avg_sample_mean = sample_means.mean().item()
-        avg_sample_std = sample_stds.mean().item()
-        
-        # Inter-sample diversity: variance across different samples
-        # Compute pixel-wise variance across the batch dimension
-        inter_sample_variance = samples.var(dim=0).mean().item()  # Average variance across spatial dims and channels
-        
-        # Overall statistics across all pixels in all samples
-        global_mean = samples.mean().item()
-        global_std = samples.std().item()
-        
-        # Log mode collapse detection metrics
-        self.log("samples/mean", avg_sample_mean, sync_dist=True)
-        self.log("samples/std", avg_sample_std, sync_dist=True)
-        self.log("samples/inter_sample_variance", inter_sample_variance, sync_dist=True)
-        self.log("samples/global_mean", global_mean, sync_dist=True)
-        self.log("samples/global_std", global_std, sync_dist=True)
-        
-        # Normalize to [0, 1] for visualization
-        samples = (samples + 1.0) / 2.0
-        samples = torch.clamp(samples, 0.0, 1.0)
-        
-        # Create grid
-        grid = torchvision.utils.make_grid(samples, nrow=4, normalize=False)
-        
-        # Log images if logger is available
-        if self.logger is not None:
-            try:
-                if hasattr(self.logger.experiment, 'add_image'):
-                    # TensorBoard
-                    self.logger.experiment.add_image(
-                        "samples", grid, global_step=self.global_step
-                    )
-                else:
-                    # WandB - import only if needed
-                    import wandb  # Fast: cached after first call
-                    self.logger.experiment.log({
-                        "samples": wandb.Image(grid),
-                        "global_step": self.global_step
-                    })
-            except (AttributeError, ImportError) as e:
-                print(f"Warning: Could not log images - {type(e).__name__}: {e}")
-    
-    def _log_gradient_norms_by_type(self):
-        """Log gradient norms for each layer, grouped by layer type."""
-        layer_gradients = {}
-
-        for name, module in self.model.named_modules():
-            layer_type = type(module).__name__
-
-            if not hasattr(module, "weight") or module.weight is None:
-                continue
-
-            if module.weight.grad is None:
-                continue
-
-            if layer_type not in layer_gradients:
-                layer_gradients[layer_type] = []
-
-            grad_norm = module.weight.grad.norm().item()
-            layer_name = name if name else "root"
-            layer_gradients[layer_type].append((layer_name, grad_norm))
-
-        for layer_type, grad_list in layer_gradients.items():
-            for layer_name, grad_norm in grad_list:
-                tag = f"gradients/{layer_type}/{layer_name}_norm"
-                self.log(tag, grad_norm, on_step=False, on_epoch=True)
-
-        total_norm_sq = 0.0
-        for param in self.model.parameters():
-            if param.grad is not None:
-                total_norm_sq += param.grad.norm().item() ** 2
-
-        total_norm = total_norm_sq ** 0.5
-        self.log("gradients/global_norm", total_norm, on_step=True, on_epoch=True, prog_bar=False)
-
-    def _log_weight_histograms_by_type(self):
-        """Log weight histograms for each layer, grouped by layer type."""
-        layer_weights = {}
-
-        for name, module in self.model.named_modules():
-            layer_type = type(module).__name__
-
-            if not hasattr(module, "weight") or module.weight is None:
-                continue
-
-            if layer_type not in layer_weights:
-                layer_weights[layer_type] = []
-
-            layer_name = name if name else "root"
-            layer_weights[layer_type].append((layer_name, module.weight.data))
-
-        if not layer_weights:
-            return
-
-        try:
-            if hasattr(self.logger.experiment, "add_histogram"):
-                for layer_type, weights_list in layer_weights.items():
-                    for layer_name, weights in weights_list:
-                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
-                        self.logger.experiment.add_histogram(tag, weights, global_step=self.global_step)
-            elif hasattr(self.logger, "experiment"):
-                import wandb
-
-                log_dict = {"global_step": self.global_step}
-                for layer_type, weights_list in layer_weights.items():
-                    for layer_name, weights in weights_list:
-                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
-                        log_dict[tag] = wandb.Histogram(weights.detach().cpu().numpy())
-
-                self.logger.experiment.log(log_dict)
-        except (AttributeError, ImportError) as e:
-            print(f"Warning: Could not log weight histograms - {type(e).__name__}: {e}")
-
     def configure_optimizers(self):
         """Configure optimizer and learning rate scheduler."""
         # Create optimizer
-        if self.optimizer_type == "adam":
-            optimizer = torch.optim.Adam(
-                self.model.parameters(),
-                lr=self.learning_rate,
-                betas=(self.adam_beta1, self.adam_beta2),
-                eps=self.adam_epsilon,
-                weight_decay=self.weight_decay
-            )
-        elif self.optimizer_type == "adamw":
-            optimizer = torch.optim.AdamW(
-                self.model.parameters(),
-                lr=self.learning_rate,
-                betas=(self.adam_beta1, self.adam_beta2),
-                eps=self.adam_epsilon,
-                weight_decay=self.weight_decay
-            )
-        else:
-            raise ValueError(f"Unknown optimizer: {self.optimizer_type}")
+        optimizer = self._create_optimizer()
         
-        # Create learning rate scheduler with warmup and different decay schedules
-        if self.lr_scheduler == "constant":
-            # Constant LR after warmup
-            def lr_lambda(step):
-                if step < self.lr_warmup_steps:
-                    return step / self.lr_warmup_steps
-                return 1.0
-                
-        elif self.lr_scheduler == "linear":
-            # Linear decay after warmup
-            if self.max_lr_steps is None:
-                raise ValueError("max_lr_steps must be specified for linear scheduler")
-            
-            def lr_lambda(step):
-                if step < self.lr_warmup_steps:
-                    return step / self.lr_warmup_steps
-                elif step >= self.max_lr_steps:
-                    return 0.0
-                else:
-                    # Linear decay from 1.0 to 0.0
-                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
-                    return 1.0 - progress
-                    
-        elif self.lr_scheduler == "cosine":
-            # Cosine annealing after warmup
-            if self.max_lr_steps is None:
-                raise ValueError("max_lr_steps must be specified for cosine scheduler")
-            
-            def lr_lambda(step):
-                if step < self.lr_warmup_steps:
-                    return step / self.lr_warmup_steps
-                elif step >= self.max_lr_steps:
-                    return 0.0
-                else:
-                    # Cosine decay from 1.0 to 0.0
-                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
-                    return 0.5 * (1.0 + math.cos(math.pi * progress))
-        else:
-            raise ValueError(f"Unknown lr_scheduler: {self.lr_scheduler}")
-        
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        # Create scheduler
+        scheduler = self._create_scheduler(optimizer)
         
         return {
             "optimizer": optimizer,
@@ -719,3 +632,83 @@ class BitDDPMTrainer(pl.LightningModule):
                 "frequency": 1
             }
         }
+    
+    def _create_optimizer(self) -> torch.optim.Optimizer:
+        """Create optimizer based on configuration."""
+        if self.optimizer_type == "adam":
+            return torch.optim.Adam(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                betas=(self.adam_beta1, self.adam_beta2),
+                eps=self.adam_epsilon,
+                weight_decay=self.weight_decay
+            )
+        elif self.optimizer_type == "adamw":
+            return torch.optim.AdamW(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                betas=(self.adam_beta1, self.adam_beta2),
+                eps=self.adam_epsilon,
+                weight_decay=self.weight_decay
+            )
+        else:
+            raise ValueError(f"Unknown optimizer: {self.optimizer_type}")
+    
+    def _create_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler:
+        """Create learning rate scheduler with warmup."""
+        if self.lr_scheduler_type == "constant":
+            # Constant LR after warmup
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return float(step) / float(max(1, self.lr_warmup_steps))
+                return 1.0
+                
+        elif self.lr_scheduler_type == "linear":
+            # Linear decay after warmup
+            if self.max_lr_steps is None:
+                raise ValueError("max_lr_steps must be specified for linear scheduler")
+            
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return float(step) / float(max(1, self.lr_warmup_steps))
+                elif step >= self.max_lr_steps:
+                    return 0.0
+                else:
+                    # Linear decay
+                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
+                    return max(0.0, 1.0 - progress)
+                    
+        elif self.lr_scheduler_type == "cosine":
+            # Cosine annealing after warmup
+            if self.max_lr_steps is None:
+                raise ValueError("max_lr_steps must be specified for cosine scheduler")
+            
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return float(step) / float(max(1, self.lr_warmup_steps))
+                elif step >= self.max_lr_steps:
+                    return 0.0
+                else:
+                    # Cosine decay
+                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
+                    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+        else:
+            raise ValueError(f"Unknown lr_scheduler: {self.lr_scheduler_type}")
+        
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+    def configure_callbacks(self):
+        """Configure callbacks for training."""
+        callbacks = super().configure_callbacks() or []
+        
+        callbacks.extend([
+            GradientNormLogger(every_n_steps=100),
+            WeightHistogramLogger(),
+            DiffusionSampleLogger(
+                batch_size=self.num_samples,
+                num_steps=self.num_sample_steps,
+                use_ema=self.use_ema,
+            ),
+        ])
+        
+        return callbacks

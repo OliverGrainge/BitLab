@@ -1,46 +1,53 @@
 """
-PyTorch Lightning Trainer for Image Classification
+PyTorch Lightning Trainer for Multiclass Image Classification
 
-This trainer implements supervised learning for image classification with support
+This trainer implements supervised learning for multiclass image classification with support
 for various loss types, learning rate schedules, and optimization strategies.
 """
 
 import math
-from typing import Optional, Literal, Dict, Any
-from pathlib import Path
+from typing import Optional, Literal
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-import torchvision
 from torchmetrics import Accuracy, F1Score, Precision, Recall, ConfusionMatrix
+
+from bitlab.bittrainer.callbacks import (
+    ClassificationVisualizationLogger,
+    GradientNormLogger,
+    WeightHistogramLogger,
+)
 
 
 class BitImageClassifierTrainer(pl.LightningModule):
     """
-    PyTorch Lightning trainer for image classification.
+    PyTorch Lightning trainer for multiclass image classification.
     
     Implements supervised learning with support for:
-    - Multiple loss functions (cross-entropy, focal loss, label smoothing)
+    - Multiple loss functions (cross-entropy, focal loss with label smoothing)
     - Various learning rate schedules (constant, linear, cosine)
     - Comprehensive metrics tracking (accuracy, F1, precision, recall)
     - Automatic mixed precision support
-    - Multi-class and binary classification
+    - Top-k accuracy metrics
     
     Args:
         model: The classification model (should output logits)
-        num_classes: Number of output classes
+        num_classes: Number of output classes (must be >= 2)
+        
         # Loss configuration
-        loss_type: Loss function - "cross_entropy", "focal", "bce" (default: "cross_entropy")
+        loss_type: Loss function - "cross_entropy" or "focal" (default: "cross_entropy")
         label_smoothing: Label smoothing factor (default: 0.0)
         focal_alpha: Focal loss alpha parameter (default: 0.25)
         focal_gamma: Focal loss gamma parameter (default: 2.0)
+        
         # Training parameters
         learning_rate: Learning rate (default: 1e-3)
         lr_warmup_steps: Number of warmup steps (default: 500)
         lr_scheduler: Learning rate schedule after warmup - "constant", "linear", or "cosine" (default: "cosine")
         max_lr_steps: Maximum steps for lr decay (required for linear/cosine, ignored for constant)
+        
         # Optimizer parameters
         optimizer: Optimizer type - "adam", "adamw", or "sgd" (default: "adamw")
         weight_decay: Weight decay (default: 0.01)
@@ -49,9 +56,11 @@ class BitImageClassifierTrainer(pl.LightningModule):
         adam_epsilon: Adam epsilon (default: 1e-8)
         sgd_momentum: SGD momentum (default: 0.9)
         sgd_nesterov: Use Nesterov momentum for SGD (default: True)
+        
         # Metrics configuration
         top_k: Compute top-k accuracy for k values (default: [1, 5])
         compute_per_class_metrics: Compute per-class precision/recall/F1 (default: False)
+        
         # Visualization
         log_samples_every_n_epochs: Log sample predictions every N epochs (default: 5)
         num_samples_to_log: Number of samples to log (default: 16)
@@ -62,7 +71,7 @@ class BitImageClassifierTrainer(pl.LightningModule):
         model: nn.Module,
         num_classes: int,
         # Loss configuration
-        loss_type: Literal["cross_entropy", "focal", "bce"] = "cross_entropy",
+        loss_type: Literal["cross_entropy", "focal"] = "cross_entropy",
         label_smoothing: float = 0.0,
         focal_alpha: float = 0.25,
         focal_gamma: float = 2.0,
@@ -89,10 +98,12 @@ class BitImageClassifierTrainer(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         
-        # Store model
-        self.model = model
+        # Validate inputs
+        if num_classes < 2:
+            raise ValueError(f"num_classes must be >= 2, got {num_classes}")
         
-        # Store parameters
+        # Store model and parameters
+        self.model = model
         self.num_classes = num_classes
         self.loss_type = loss_type
         self.label_smoothing = label_smoothing
@@ -109,58 +120,52 @@ class BitImageClassifierTrainer(pl.LightningModule):
         self.adam_epsilon = adam_epsilon
         self.sgd_momentum = sgd_momentum
         self.sgd_nesterov = sgd_nesterov
-        self.top_k = top_k if top_k is not None else [1, 5]
+        self.top_k = top_k if top_k is not None else [1, 5] if num_classes > 5 else [1]
         self.compute_per_class_metrics = compute_per_class_metrics
         self.log_samples_every_n_epochs = log_samples_every_n_epochs
         self.num_samples_to_log = num_samples_to_log
         
-        # Validate binary classification setup
-        if loss_type == "bce" and num_classes != 2:
-            raise ValueError("BCE loss requires num_classes=2")
-        
         # Initialize metrics
-        task = "binary" if num_classes == 2 else "multiclass"
+        self._setup_metrics()
+    
+    def _setup_metrics(self):
+        """Initialize all metrics for training, validation, and testing."""
+        # Determine task type
+        task = "binary" if self.num_classes == 2 else "multiclass"
         
         # Training metrics
-        self.train_acc = Accuracy(task=task, num_classes=num_classes if task == "multiclass" else None)
-        self.train_f1 = F1Score(task=task, num_classes=num_classes if task == "multiclass" else None)
+        self.train_acc = Accuracy(task=task, num_classes=self.num_classes if task == "multiclass" else None)
+        self.train_f1 = F1Score(task=task, num_classes=self.num_classes if task == "multiclass" else None)
         
         # Validation metrics
-        self.val_acc = Accuracy(task=task, num_classes=num_classes if task == "multiclass" else None)
-        self.val_f1 = F1Score(task=task, num_classes=num_classes if task == "multiclass" else None)
+        self.val_acc = Accuracy(task=task, num_classes=self.num_classes if task == "multiclass" else None)
+        self.val_f1 = F1Score(task=task, num_classes=self.num_classes if task == "multiclass" else None)
+        self.val_confusion_matrix = ConfusionMatrix(task=task, num_classes=self.num_classes if task == "multiclass" else None)
         
         # Test metrics
-        self.test_acc = Accuracy(task=task, num_classes=num_classes if task == "multiclass" else None)
-        self.test_f1 = F1Score(task=task, num_classes=num_classes if task == "multiclass" else None)
+        self.test_acc = Accuracy(task=task, num_classes=self.num_classes if task == "multiclass" else None)
+        self.test_f1 = F1Score(task=task, num_classes=self.num_classes if task == "multiclass" else None)
         
-        # Top-k accuracy metrics (only for multiclass)
-        if task == "multiclass":
+        # Top-k accuracy metrics (only for multiclass with > 5 classes)
+        if task == "multiclass" and self.num_classes > 5:
             self.val_top_k_metrics = nn.ModuleDict({
-                f"top{k}": Accuracy(task="multiclass", num_classes=num_classes, top_k=k)
-                for k in self.top_k
+                f"top{k}": Accuracy(task="multiclass", num_classes=self.num_classes, top_k=k)
+                for k in self.top_k if k < self.num_classes
             })
             self.test_top_k_metrics = nn.ModuleDict({
-                f"top{k}": Accuracy(task="multiclass", num_classes=num_classes, top_k=k)
-                for k in self.top_k
+                f"top{k}": Accuracy(task="multiclass", num_classes=self.num_classes, top_k=k)
+                for k in self.top_k if k < self.num_classes
             })
         
         # Per-class metrics (optional)
-        if compute_per_class_metrics and task == "multiclass":
-            self.val_precision = Precision(task=task, num_classes=num_classes, average=None)
-            self.val_recall = Recall(task=task, num_classes=num_classes, average=None)
-            self.val_f1_per_class = F1Score(task=task, num_classes=num_classes, average=None)
+        if self.compute_per_class_metrics and task == "multiclass":
+            self.val_precision = Precision(task=task, num_classes=self.num_classes, average=None)
+            self.val_recall = Recall(task=task, num_classes=self.num_classes, average=None)
+            self.val_f1_per_class = F1Score(task=task, num_classes=self.num_classes, average=None)
             
-            self.test_precision = Precision(task=task, num_classes=num_classes, average=None)
-            self.test_recall = Recall(task=task, num_classes=num_classes, average=None)
-            self.test_f1_per_class = F1Score(task=task, num_classes=num_classes, average=None)
-        
-        # Confusion matrix for validation
-        self.val_confusion_matrix = ConfusionMatrix(task=task, num_classes=num_classes if task == "multiclass" else None)
-        
-        # Storage for sample logging
-        self.val_sample_images = []
-        self.val_sample_labels = []
-        self.val_sample_preds = []
+            self.test_precision = Precision(task=task, num_classes=self.num_classes, average=None)
+            self.test_recall = Recall(task=task, num_classes=self.num_classes, average=None)
+            self.test_f1_per_class = F1Score(task=task, num_classes=self.num_classes, average=None)
     
     def focal_loss(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         """
@@ -180,32 +185,44 @@ class BitImageClassifierTrainer(pl.LightningModule):
         focal_loss = self.focal_alpha * (1 - p_t) ** self.focal_gamma * ce_loss
         return focal_loss.mean()
     
-    def get_loss(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """Compute loss based on loss type."""
+    def compute_loss(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Compute loss based on configured loss type.
+        
+        Args:
+            logits: Model predictions [B, num_classes]
+            targets: Ground truth labels [B]
+        
+        Returns:
+            Loss value
+        """
         if self.loss_type == "cross_entropy":
             return F.cross_entropy(logits, targets, label_smoothing=self.label_smoothing)
-        
         elif self.loss_type == "focal":
-            return self.focal_loss(logits, targets)
-        
-        elif self.loss_type == "bce":
-            # For binary classification with BCEWithLogitsLoss
-            # Expects logits of shape [B, 1] or [B] and targets of shape [B]
-            if logits.dim() > 1 and logits.shape[1] == 2:
-                # If model outputs [B, 2], take second column
-                logits = logits[:, 1]
-            elif logits.dim() > 1 and logits.shape[1] == 1:
-                # If model outputs [B, 1], squeeze
-                logits = logits.squeeze(1)
-            
-            targets = targets.float()
-            return F.binary_cross_entropy_with_logits(logits, targets)
-        
+            if self.label_smoothing > 0:
+                # Apply label smoothing with focal loss
+                # First compute smoothed targets
+                n_classes = logits.size(-1)
+                smoothed = torch.full_like(logits, self.label_smoothing / (n_classes - 1))
+                smoothed.scatter_(-1, targets.unsqueeze(-1), 1.0 - self.label_smoothing)
+                
+                # Compute focal loss with smoothed targets
+                log_probs = F.log_softmax(logits, dim=-1)
+                probs = torch.exp(log_probs)
+                
+                # Focal weight
+                focal_weight = (1 - probs) ** self.focal_gamma
+                
+                # Weighted cross entropy with smoothed labels
+                loss = -(smoothed * log_probs * focal_weight).sum(dim=-1)
+                return loss.mean() * self.focal_alpha
+            else:
+                return self.focal_loss(logits, targets)
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass."""
+        """Forward pass through the model."""
         return self.model(x)
     
     def training_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> torch.Tensor:
@@ -216,14 +233,10 @@ class BitImageClassifierTrainer(pl.LightningModule):
         logits = self(images)
         
         # Compute loss
-        loss = self.get_loss(logits, targets)
+        loss = self.compute_loss(logits, targets)
         
         # Get predictions for metrics
-        if self.loss_type == "bce":
-            preds = torch.sigmoid(logits if logits.dim() == 1 else logits[:, 1])
-            preds = (preds > 0.5).long()
-        else:
-            preds = torch.argmax(logits, dim=1)
+        preds = torch.argmax(logits, dim=1)
         
         # Update metrics
         self.train_acc(preds, targets)
@@ -231,8 +244,13 @@ class BitImageClassifierTrainer(pl.LightningModule):
         
         # Log metrics
         self.log("train/loss", loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log("train/acc", self.train_acc, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("train/acc", self.train_acc, prog_bar=False, on_step=False, on_epoch=True)
         self.log("train/f1", self.train_f1, on_step=False, on_epoch=True)
+        
+        # Log learning rate
+        if self.trainer.optimizers:
+            lr = self.trainer.optimizers[0].param_groups[0]['lr']
+            self.log("train/lr", lr, on_step=True, on_epoch=False)
         
         return loss
     
@@ -244,18 +262,15 @@ class BitImageClassifierTrainer(pl.LightningModule):
         logits = self(images)
         
         # Compute loss
-        loss = self.get_loss(logits, targets)
+        loss = self.compute_loss(logits, targets)
         
         # Get predictions for metrics
-        if self.loss_type == "bce":
-            preds = torch.sigmoid(logits if logits.dim() == 1 else logits[:, 1])
-            preds = (preds > 0.5).long()
-        else:
-            preds = torch.argmax(logits, dim=1)
+        preds = torch.argmax(logits, dim=1)
         
         # Update metrics
         self.val_acc(preds, targets)
         self.val_f1(preds, targets)
+        self.val_confusion_matrix(preds, targets)
         
         # Update top-k metrics
         if hasattr(self, 'val_top_k_metrics'):
@@ -268,16 +283,6 @@ class BitImageClassifierTrainer(pl.LightningModule):
             self.val_recall(preds, targets)
             self.val_f1_per_class(preds, targets)
         
-        # Update confusion matrix
-        self.val_confusion_matrix(preds, targets)
-        
-        # Store samples for visualization (only first batch, limited number)
-        if batch_idx == 0 and len(self.val_sample_images) < self.num_samples_to_log:
-            num_to_store = min(self.num_samples_to_log - len(self.val_sample_images), images.shape[0])
-            self.val_sample_images.append(images[:num_to_store].cpu())
-            self.val_sample_labels.append(targets[:num_to_store].cpu())
-            self.val_sample_preds.append(preds[:num_to_store].cpu())
-        
         # Log metrics
         self.log("val/loss", loss, prog_bar=True, sync_dist=True)
         self.log("val/acc", self.val_acc, prog_bar=True, sync_dist=True)
@@ -286,7 +291,7 @@ class BitImageClassifierTrainer(pl.LightningModule):
         return loss
     
     def on_validation_epoch_end(self):
-        """Log additional metrics at the end of validation."""
+        """Log additional metrics at the end of validation epoch."""
         # Log top-k accuracies
         if hasattr(self, 'val_top_k_metrics'):
             for name, metric in self.val_top_k_metrics.items():
@@ -298,139 +303,17 @@ class BitImageClassifierTrainer(pl.LightningModule):
             recall = self.val_recall.compute()
             f1 = self.val_f1_per_class.compute()
             
+            # Log individual class metrics
             for i in range(self.num_classes):
                 self.log(f"val/class_{i}_precision", precision[i], sync_dist=True)
                 self.log(f"val/class_{i}_recall", recall[i], sync_dist=True)
                 self.log(f"val/class_{i}_f1", f1[i], sync_dist=True)
+            
+            # Log mean metrics
+            self.log("val/mean_precision", precision.mean(), sync_dist=True)
+            self.log("val/mean_recall", recall.mean(), sync_dist=True)
+            self.log("val/mean_f1_per_class", f1.mean(), sync_dist=True)
 
-        if self.logger is not None:
-            self._log_weight_histograms_by_type()
-        
-        # Log confusion matrix
-        if self.logger is not None and self.current_epoch % self.log_samples_every_n_epochs == 0:
-            cm = self.val_confusion_matrix.compute()
-            
-            try:
-                if hasattr(self.logger.experiment, 'add_figure'):
-                    # TensorBoard
-                    import matplotlib.pyplot as plt
-                    fig, ax = plt.subplots(figsize=(10, 10))
-                    im = ax.imshow(cm.cpu().numpy(), cmap='Blues')
-                    ax.figure.colorbar(im, ax=ax)
-                    ax.set_xlabel('Predicted')
-                    ax.set_ylabel('True')
-                    ax.set_title('Confusion Matrix')
-                    self.logger.experiment.add_figure(
-                        "val/confusion_matrix", fig, global_step=self.global_step
-                    )
-                    plt.close(fig)
-                else:
-                    # WandB - log as heatmap instead of using confusion_matrix plot
-                    import wandb
-                    self.logger.experiment.log({
-                        "val/confusion_matrix": wandb.Image(cm.cpu().numpy()),
-                        "global_step": self.global_step
-                    })
-            except (AttributeError, ImportError) as e:
-                print(f"Warning: Could not log confusion matrix - {type(e).__name__}: {e}")
-        
-        # Log sample predictions
-        if (self.val_sample_images and 
-            self.logger is not None and 
-            self.current_epoch % self.log_samples_every_n_epochs == 0):
-            
-            images = torch.cat(self.val_sample_images, dim=0)[:self.num_samples_to_log]
-            labels = torch.cat(self.val_sample_labels, dim=0)[:self.num_samples_to_log]
-            preds = torch.cat(self.val_sample_preds, dim=0)[:self.num_samples_to_log]
-            
-            # Normalize images to [0, 1] if needed
-            if images.min() < 0:
-                images = (images + 1.0) / 2.0
-            images = torch.clamp(images, 0.0, 1.0)
-            
-            # Create grid with labels
-            grid = torchvision.utils.make_grid(images, nrow=4, normalize=False)
-            
-            try:
-                if hasattr(self.logger.experiment, 'add_image'):
-                    # TensorBoard
-                    self.logger.experiment.add_image(
-                        "val/samples", grid, global_step=self.global_step
-                    )
-                    # Log predictions as text
-                    pred_text = "\n".join([
-                        f"Sample {i}: True={labels[i].item()}, Pred={preds[i].item()}"
-                        for i in range(min(8, len(labels)))
-                    ])
-                    self.logger.experiment.add_text(
-                        "val/predictions", pred_text, global_step=self.global_step
-                    )
-                else:
-                    # WandB
-                    import wandb
-                    self.logger.experiment.log({
-                        "val/samples": wandb.Image(
-                            grid,
-                            caption=f"Epoch {self.current_epoch}"
-                        ),
-                        "global_step": self.global_step
-                    })
-            except (AttributeError, ImportError) as e:
-                print(f"Warning: Could not log sample images - {type(e).__name__}: {e}")
-        
-        # Clear sample storage
-        self.val_sample_images = []
-        self.val_sample_labels = []
-        self.val_sample_preds = []
-
-    def on_before_optimizer_step(self, optimizer):
-        """
-        Called after loss.backward() but before optimizer.step().
-        This is when gradients are fresh and available.
-        """
-        # Log gradient norms by layer type
-        if self.global_step % 100 == 0:
-            self._log_gradient_norms_by_type()
-
-
-    def _log_gradient_norms_by_type(self):
-        """Log gradient norms for each layer, organized by layer type."""
-        # Group gradients by layer type
-        layer_gradients = {}
-        
-        for name, module in self.model.named_modules():
-            layer_type = type(module).__name__
-            
-            if not hasattr(module, 'weight') or module.weight is None:
-                continue
-            
-            if module.weight.grad is None:
-                continue
-            
-            if layer_type not in layer_gradients:
-                layer_gradients[layer_type] = []
-            
-            # Compute gradient norm (L2 norm)
-            grad_norm = module.weight.grad.norm().item()
-            layer_name = name if name else 'root'
-            layer_gradients[layer_type].append((layer_name, grad_norm))
-        
-        # Log gradient norms as scalars (organized by type)
-        for layer_type, grad_list in layer_gradients.items():
-            for layer_name, grad_norm in grad_list:
-                tag = f"gradients/{layer_type}/{layer_name}_norm"
-                # Log per step, not per epoch to avoid spam
-                self.log(tag, grad_norm, on_step=False, on_epoch=True)
-        
-        # Log global gradient norm
-        total_norm = 0.0
-        for param in self.model.parameters():
-            if param.grad is not None:
-                total_norm += param.grad.norm().item() ** 2
-        
-        total_norm = total_norm ** 0.5
-        self.log("gradients/global_norm", total_norm, on_step=True, on_epoch=True, prog_bar=False)
-    
     def test_step(self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int):
         """Test step."""
         images, targets = batch
@@ -439,14 +322,10 @@ class BitImageClassifierTrainer(pl.LightningModule):
         logits = self(images)
         
         # Compute loss
-        loss = self.get_loss(logits, targets)
+        loss = self.compute_loss(logits, targets)
         
         # Get predictions for metrics
-        if self.loss_type == "bce":
-            preds = torch.sigmoid(logits if logits.dim() == 1 else logits[:, 1])
-            preds = (preds > 0.5).long()
-        else:
-            preds = torch.argmax(logits, dim=1)
+        preds = torch.argmax(logits, dim=1)
         
         # Update metrics
         self.test_acc(preds, targets)
@@ -483,82 +362,24 @@ class BitImageClassifierTrainer(pl.LightningModule):
             recall = self.test_recall.compute()
             f1 = self.test_f1_per_class.compute()
             
+            # Log individual class metrics
             for i in range(self.num_classes):
                 self.log(f"test/class_{i}_precision", precision[i], sync_dist=True)
                 self.log(f"test/class_{i}_recall", recall[i], sync_dist=True)
                 self.log(f"test/class_{i}_f1", f1[i], sync_dist=True)
+            
+            # Log mean metrics
+            self.log("test/mean_precision", precision.mean(), sync_dist=True)
+            self.log("test/mean_recall", recall.mean(), sync_dist=True)
+            self.log("test/mean_f1_per_class", f1.mean(), sync_dist=True)
     
     def configure_optimizers(self):
         """Configure optimizer and learning rate scheduler."""
         # Create optimizer
-        if self.optimizer_type == "adam":
-            optimizer = torch.optim.Adam(
-                self.model.parameters(),
-                lr=self.learning_rate,
-                betas=(self.adam_beta1, self.adam_beta2),
-                eps=self.adam_epsilon,
-                weight_decay=self.weight_decay
-            )
-        elif self.optimizer_type == "adamw":
-            optimizer = torch.optim.AdamW(
-                self.model.parameters(),
-                lr=self.learning_rate,
-                betas=(self.adam_beta1, self.adam_beta2),
-                eps=self.adam_epsilon,
-                weight_decay=self.weight_decay
-            )
-        elif self.optimizer_type == "sgd":
-            optimizer = torch.optim.SGD(
-                self.model.parameters(),
-                lr=self.learning_rate,
-                momentum=self.sgd_momentum,
-                weight_decay=self.weight_decay,
-                nesterov=self.sgd_nesterov
-            )
-        else:
-            raise ValueError(f"Unknown optimizer: {self.optimizer_type}")
+        optimizer = self._create_optimizer()
         
-        # Create learning rate scheduler with warmup and different decay schedules
-        if self.lr_scheduler_type == "constant":
-            # Constant LR after warmup
-            def lr_lambda(step):
-                if step < self.lr_warmup_steps:
-                    return step / self.lr_warmup_steps
-                return 1.0
-                
-        elif self.lr_scheduler_type == "linear":
-            # Linear decay after warmup
-            if self.max_lr_steps is None:
-                raise ValueError("max_lr_steps must be specified for linear scheduler")
-            
-            def lr_lambda(step):
-                if step < self.lr_warmup_steps:
-                    return step / self.lr_warmup_steps
-                elif step >= self.max_lr_steps:
-                    return 0.0
-                else:
-                    # Linear decay from 1.0 to 0.0
-                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
-                    return 1.0 - progress
-                    
-        elif self.lr_scheduler_type == "cosine":
-            # Cosine annealing after warmup
-            if self.max_lr_steps is None:
-                raise ValueError("max_lr_steps must be specified for cosine scheduler")
-            
-            def lr_lambda(step):
-                if step < self.lr_warmup_steps:
-                    return step / self.lr_warmup_steps
-                elif step >= self.max_lr_steps:
-                    return 0.0
-                else:
-                    # Cosine decay from 1.0 to 0.0
-                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
-                    return 0.5 * (1.0 + math.cos(math.pi * progress))
-        else:
-            raise ValueError(f"Unknown lr_scheduler: {self.lr_scheduler_type}")
-        
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        # Create learning rate scheduler
+        scheduler = self._create_scheduler(optimizer)
         
         return {
             "optimizer": optimizer,
@@ -568,48 +389,91 @@ class BitImageClassifierTrainer(pl.LightningModule):
                 "frequency": 1
             }
         }
+    
+    def _create_optimizer(self) -> torch.optim.Optimizer:
+        """Create optimizer based on configuration."""
+        if self.optimizer_type == "adam":
+            return torch.optim.Adam(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                betas=(self.adam_beta1, self.adam_beta2),
+                eps=self.adam_epsilon,
+                weight_decay=self.weight_decay
+            )
+        elif self.optimizer_type == "adamw":
+            return torch.optim.AdamW(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                betas=(self.adam_beta1, self.adam_beta2),
+                eps=self.adam_epsilon,
+                weight_decay=self.weight_decay
+            )
+        elif self.optimizer_type == "sgd":
+            return torch.optim.SGD(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                momentum=self.sgd_momentum,
+                weight_decay=self.weight_decay,
+                nesterov=self.sgd_nesterov
+            )
+        else:
+            raise ValueError(f"Unknown optimizer: {self.optimizer_type}")
+    
+    def _create_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler:
+        """Create learning rate scheduler with warmup."""
+        if self.lr_scheduler_type == "constant":
+            # Constant LR after warmup
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return float(step) / float(max(1, self.lr_warmup_steps))
+                return 1.0
+                
+        elif self.lr_scheduler_type == "linear":
+            # Linear decay after warmup
+            if self.max_lr_steps is None:
+                raise ValueError("max_lr_steps must be specified for linear scheduler")
+            
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return float(step) / float(max(1, self.lr_warmup_steps))
+                elif step >= self.max_lr_steps:
+                    return 0.0
+                else:
+                    # Linear decay from 1.0 to 0.0
+                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
+                    return max(0.0, 1.0 - progress)
+                    
+        elif self.lr_scheduler_type == "cosine":
+            # Cosine annealing after warmup
+            if self.max_lr_steps is None:
+                raise ValueError("max_lr_steps must be specified for cosine scheduler")
+            
+            def lr_lambda(step):
+                if step < self.lr_warmup_steps:
+                    return float(step) / float(max(1, self.lr_warmup_steps))
+                elif step >= self.max_lr_steps:
+                    return 0.0
+                else:
+                    # Cosine decay from 1.0 to 0.0
+                    progress = (step - self.lr_warmup_steps) / (self.max_lr_steps - self.lr_warmup_steps)
+                    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+        else:
+            raise ValueError(f"Unknown lr_scheduler: {self.lr_scheduler_type}")
+        
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-    def _log_weight_histograms_by_type(self):
-        """Log weight histograms for each layer, organized by layer type."""
-        # Group parameters by layer type
-        layer_weights = {}
+    def configure_callbacks(self):
+        """Configure callbacks for training."""
+        callbacks = super().configure_callbacks() or []
         
-        for name, module in self.model.named_modules():
-            # Get the layer type
-            layer_type = type(module).__name__
-            
-            # Skip containers and non-parametric layers
-            if not hasattr(module, 'weight') or module.weight is None:
-                continue
-            
-            # Initialize list for this layer type if needed
-            if layer_type not in layer_weights:
-                layer_weights[layer_type] = []
-            
-            # Store layer name and weights
-            layer_weights[layer_type].append((name if name else 'root', module.weight.data))
-        try:
-            # Log histograms organized by type
-            if hasattr(self.logger.experiment, 'add_histogram'):
-                # TensorBoard
-                for layer_type, weights_list in layer_weights.items():
-                    for layer_name, weights in weights_list:
-                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
-                        self.logger.experiment.add_histogram(
-                            tag, weights, global_step=self.global_step
-                        )
-            
-            elif hasattr(self.logger, 'experiment'):
-                # WandB
-                import wandb
-                log_dict = {"global_step": self.global_step}
-                
-                for layer_type, weights_list in layer_weights.items():
-                    for layer_name, weights in weights_list:
-                        tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
-                        log_dict[tag] = wandb.Histogram(weights.cpu().numpy())
-                
-                self.logger.experiment.log(log_dict)
+        # Add custom callbacks
+        callbacks.extend([
+            GradientNormLogger(every_n_steps=100),
+            WeightHistogramLogger(),
+            ClassificationVisualizationLogger(
+                num_samples_to_log=self.num_samples_to_log,
+                log_samples_every_n_epochs=self.log_samples_every_n_epochs,
+            ),
+        ])
         
-        except (AttributeError, ImportError) as e:
-            print(f"Warning: Could not log weight histograms - {type(e).__name__}: {e}")
+        return callbacks

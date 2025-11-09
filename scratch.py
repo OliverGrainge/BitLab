@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch 
 
 
-layer = bnn.BitLinear(128, 1, quant_type="ai8pc_wpt")
+layer = bnn.BitLinear(128, 1, quant_type="none")
 
 x = torch.randn(100, 128)
 y = torch.randn(100, 1)

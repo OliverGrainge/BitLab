@@ -10,6 +10,11 @@ import torch
 import yaml
 from bitlab.bitmodels import BitUNetConfig, BitUNetModel
 from bitlab.bittrainer import BitDDPMTrainer
+from bitlab.bittrainer.callbacks import (
+    DiffusionSampleLogger,
+    GradientNormLogger,
+    WeightHistogramLogger,
+)
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
@@ -103,6 +108,17 @@ def main(config_path: str) -> None:
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
+    logging_callbacks = [
+        GradientNormLogger(every_n_steps=config.get("grad_norm_log_every_n_steps", 100)),
+        WeightHistogramLogger(log_every_n_epochs=config.get("weight_histogram_log_every_n_epochs", 1)),
+        DiffusionSampleLogger(
+            batch_size=config["num_samples"],
+            num_steps=config["num_sample_steps"],
+            log_every_n_epochs=config.get("sample_log_every_n_epochs", 1),
+            use_ema=config.get("use_ema"),
+        ),
+    ]
+
     logger = WandbLogger(
         project="bitddpm_unet",
         name="bitddpm_unet",
@@ -118,7 +134,7 @@ def main(config_path: str) -> None:
         gradient_clip_val=config["grad_clip_val"],
         accumulate_grad_batches=config["accumulate_grad_batches"],
         log_every_n_steps=config["log_every_n_steps"],
-        callbacks=[checkpoint_callback, lr_monitor],
+        callbacks=[checkpoint_callback, lr_monitor, *logging_callbacks],
         logger=logger,
         max_epochs=None,
     )
