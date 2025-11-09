@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import sys
-from functools import partial
 from pathlib import Path
-from typing import Iterable, List
 
 import pytorch_lightning as pl
 import torch
 import torch.multiprocessing as mp
-import torch.nn as nn
 import yaml
 from bitlab.bittrainer.classification import BitImageClassifierTrainer
 from bitlab.bittrainer.callbacks import (
@@ -18,53 +15,11 @@ from bitlab.bittrainer.callbacks import (
     GradientNormLogger,
     WeightHistogramLogger,
 )
-from bitlab.bnn import BitLinear, Module
+from bitlab.bitmodels import BitMLPConfig, BitMLPModel
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
 from datamodule import MNISTClassificationDataModule
-
-
-class MNISTMLP(Module):
-    """Simple fully-connected network for MNIST classification."""
-
-    def __init__(
-        self,
-        input_size: int = 28 * 28,
-        hidden_dims: Iterable[int] | None = None,
-        num_classes: int = 10,
-        linear_layer: type[nn.Linear] = nn.Linear,
-    ) -> None:
-        super().__init__()
-
-        hidden_dims = list(hidden_dims) if hidden_dims is not None else [256, 256]
-        if not hidden_dims:
-            hidden_dims = [256]
-
-        layer_dims: List[int] = [input_size] + hidden_dims + [num_classes]
-
-        layers: List[nn.Module] = []
-        prev_dim = layer_dims[0]
-
-        for idx, next_dim in enumerate(layer_dims[1:]):
-            is_last = idx == len(layer_dims[1:]) - 1
-
-            if is_last:
-                layer_cls = nn.Linear
-            else:
-                layer_cls = linear_layer
-
-            layers.append(layer_cls(prev_dim, next_dim))
-            if not is_last:
-                layers.append(nn.ReLU(inplace=True))
-
-            prev_dim = next_dim
-
-        self.net = nn.Sequential(*layers)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:  # noqa: D401
-        x = x.view(x.size(0), -1)
-        return self.net(x)
 
 
 def load_config(config_path: str) -> dict:
@@ -73,18 +28,6 @@ def load_config(config_path: str) -> dict:
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return config
-
-
-def get_linear_layer(layer_type: str, quant_type: str | None = None):
-    """Return the linear layer class based on the configured layer type."""
-
-    if layer_type == "standard":
-        return nn.Linear
-    if layer_type == "bitlinear":
-        if quant_type is None:
-            raise ValueError("quant_type must be specified for bitlinear layers")
-        return partial(BitLinear, quant_type=quant_type)
-    raise ValueError(f"Unknown layer type: {layer_type}")
 
 
 def main(config_path: str) -> None:
@@ -121,16 +64,17 @@ def main(config_path: str) -> None:
         seed=config["seed"],
     )
 
-    # Build model
-    linear_layer = get_linear_layer(
-        config["model"]["layer_type"],
-        config["model"].get("quant_type"),
-    )
-    model = MNISTMLP(
-        hidden_dims=config["model"].get("hidden_dims", [256, 256]),
+    # Build model via BitMLPConfig/Model
+    layer_type = config["model"]["layer_type"]
+    use_bitlinear = layer_type == "bitlinear"
+    model_config = BitMLPConfig(
+        input_size=config["model"].get("input_size", 28 * 28),
+        hidden_dims=tuple(config["model"].get("hidden_dims", [256, 256])),
         num_classes=config["num_classes"],
-        linear_layer=linear_layer,
+        use_bitlinear=use_bitlinear,
+        quant_type=config["model"].get("quant_type"),
     )
+    model = BitMLPModel(model_config)
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

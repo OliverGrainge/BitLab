@@ -3,90 +3,24 @@
 from __future__ import annotations
 
 import sys
-from functools import partial
 from pathlib import Path
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import yaml
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 
-from bitlab.bnn import Module, BitConv2d
 from bitlab.bittrainer.classification import BitImageClassifierTrainer
 from bitlab.bittrainer.callbacks import (
     ClassificationVisualizationLogger,
     GradientNormLogger,
     WeightHistogramLogger,
 )
+from bitlab.bitmodels import BitResNetConfig, BitResNetModel
 
 from datamodule import CIFAR10ClassificationDataModule
 import torch.multiprocessing as mp
-
-class BasicBlock(nn.Module):
-    """Basic ResNet block with parameterized convolution layer."""
-    expansion = 1
-
-    def __init__(self, in_planes, planes, stride=1, conv_layer=nn.Conv2d):
-        super().__init__()
-        self.conv1 = conv_layer(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv_layer(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(
-                conv_layer(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(self.expansion * planes)
-            )
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class ResNet18(Module):
-    """ResNet18 with parameterized convolution layers for CIFAR-10."""
-
-    def __init__(self, num_classes=10, conv_layer=nn.Conv2d):
-        super().__init__()
-        self.in_planes = 64
-        self.conv_layer = conv_layer
-
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        
-        self.layer1 = self._make_layer(64, 2, stride=1)
-        self.layer2 = self._make_layer(128, 2, stride=2)
-        self.layer3 = self._make_layer(256, 2, stride=2)
-        self.layer4 = self._make_layer(512, 2, stride=2)
-        
-        self.linear = nn.Linear(512 * BasicBlock.expansion, num_classes)
-
-    def _make_layer(self, planes, num_blocks, stride):
-        strides = [stride] + [1] * (num_blocks - 1)
-        layers = []
-        for stride in strides:
-            layers.append(BasicBlock(self.in_planes, planes, stride, self.conv_layer))
-            self.in_planes = planes * BasicBlock.expansion
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = F.avg_pool2d(out, 4)
-        out = out.view(out.size(0), -1)
-        out = self.linear(out)
-        return out
 
 
 def load_config(config_path: str) -> dict:
@@ -94,20 +28,6 @@ def load_config(config_path: str) -> dict:
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     return config
-
-
-def get_conv_layer(layer_type: str, quant_type: str = None):
-    """Get the convolution layer class based on layer type."""
-    if layer_type == 'standard':
-        return nn.Conv2d
-    elif layer_type == 'bitconv':
-        if quant_type is None:
-            raise ValueError("quant_type must be specified for bitconv layers")
-        return partial(BitConv2d, quant_type=quant_type)
-    else:
-        raise ValueError(f"Unknown layer type: {layer_type}")
-
-
 def main(config_path: str) -> None:
     """Main training function."""
     torch.set_float32_matmul_precision('medium')
@@ -141,9 +61,18 @@ def main(config_path: str) -> None:
         seed=config["seed"],
     )
     
-    # Create model with appropriate layer type
-    conv_layer = get_conv_layer(config["model"]["layer_type"], config["model"]["quant_type"])
-    model = ResNet18(num_classes=config["num_classes"], conv_layer=conv_layer)
+    # Build model via BitResNetConfig/Model
+    layer_type = config["model"]["layer_type"]
+    use_bitconv = layer_type == "bitconv"
+    model_config = BitResNetConfig(
+        num_classes=config["num_classes"],
+        in_channels=config["model"].get("in_channels", 3),
+        base_channels=config["model"].get("base_channels", 64),
+        block_layers=tuple(config["model"].get("block_layers", [2, 2, 2, 2])),
+        use_bitconv=use_bitconv,
+        quant_type=config["model"].get("quant_type"),
+    )
+    model = BitResNetModel(model_config)
     
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())

@@ -12,15 +12,16 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, Sequence
+from typing import Any, Dict, Sequence
 
 import pytorch_lightning as pl
 import torch
 import torch.multiprocessing as mp
 from bitlab.bittrainer.classification import BitImageClassifierTrainer
+from bitlab.bitmodels import BitMLPConfig, BitMLPModel
 
 from datamodule import MNISTClassificationDataModule
-from main import MNISTMLP, get_linear_layer, load_config
+from main import load_config
 
 
 def get_device() -> torch.device:
@@ -50,24 +51,21 @@ def build_datamodule(
     return datamodule
 
 
-def build_model(config: Dict[str, Any]) -> MNISTMLP:
-    linear_layer = get_linear_layer(
-        config["model"]["layer_type"],
-        config["model"].get("quant_type"),
-    )
-
-    hidden_dims: Iterable[int] | None = config["model"].get("hidden_dims")
-
-    model = MNISTMLP(
-        hidden_dims=hidden_dims,
+def build_model(config: Dict[str, Any]) -> BitMLPModel:
+    layer_type = config["model"]["layer_type"]
+    use_bitlinear = layer_type == "bitlinear"
+    model_cfg = BitMLPConfig(
+        input_size=config["model"].get("input_size", 28 * 28),
+        hidden_dims=tuple(config["model"].get("hidden_dims", [256, 256])),
         num_classes=config["num_classes"],
-        linear_layer=linear_layer,
+        use_bitlinear=use_bitlinear,
+        quant_type=config["model"].get("quant_type"),
     )
-    return model
+    return BitMLPModel(model_cfg)
 
 
 def build_lit_module(
-    config: Dict[str, Any], model: MNISTMLP, datamodule: MNISTClassificationDataModule
+    config: Dict[str, Any], model: BitMLPModel, datamodule: MNISTClassificationDataModule
 ) -> BitImageClassifierTrainer:
     # Ensure the datamodule is ready so we can compute the number of steps.
     datamodule.prepare_data()

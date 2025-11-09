@@ -18,8 +18,9 @@ import torch
 import pytorch_lightning as pl
 
 from datamodule import CIFAR10ClassificationDataModule
-from main import ResNet18, get_conv_layer, load_config
+from main import load_config
 from bitlab.bittrainer.classification import BitImageClassifierTrainer
+from bitlab.bitmodels import BitResNetConfig, BitResNetModel
 import torch.multiprocessing as mp
 
 def get_device() -> torch.device:
@@ -44,22 +45,23 @@ def build_datamodule(config: Dict[str, Any], *, batch_size_override: int | None 
     return datamodule
 
 
-def build_model(config: Dict[str, Any]) -> ResNet18:
-    conv_layer = get_conv_layer(
-        config["model"]["layer_type"],
-        config["model"].get("quant_type"),
-    )
-
-    model = ResNet18(
+def build_model(config: Dict[str, Any]) -> BitResNetModel:
+    layer_type = config["model"]["layer_type"]
+    use_bitconv = layer_type == "bitconv"
+    model_cfg = BitResNetConfig(
         num_classes=config["num_classes"],
-        conv_layer=conv_layer,
+        in_channels=config["model"].get("in_channels", 3),
+        base_channels=config["model"].get("base_channels", 64),
+        block_layers=tuple(config["model"].get("block_layers", [2, 2, 2, 2])),
+        use_bitconv=use_bitconv,
+        quant_type=config["model"].get("quant_type"),
     )
-    return model
+    return BitResNetModel(model_cfg)
 
 
 def build_lit_module(
     config: Dict[str, Any],
-    model: ResNet18,
+    model: BitResNetModel,
     datamodule: CIFAR10ClassificationDataModule,
 ) -> BitImageClassifierTrainer:
     datamodule.prepare_data()
