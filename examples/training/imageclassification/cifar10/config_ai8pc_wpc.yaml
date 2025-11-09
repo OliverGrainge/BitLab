@@ -45,6 +45,5 @@ num_samples_to_log: 16
 
 # Model architecture settings
 model:
-  layer_type: "bitconv"
   quant_type: "ai8pc_wpc"
 

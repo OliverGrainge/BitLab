@@ -55,18 +55,17 @@ class BitResNet(Module):
         num_classes: int,
         base_channels: int,
         block_layers: Sequence[int],
-        use_bitconv: bool,
         quant_type: Optional[str] = None,
     ) -> None:
         super().__init__()
 
-        if use_bitconv and quant_type is None:
-            raise ValueError("quant_type must be specified when use_bitconv=True")
+        use_bitconv = quant_type is not None
 
         if use_bitconv:
             conv_factory = partial(BitConv2d, quant_type=quant_type)
         else:
             conv_factory = nn.Conv2d
+
 
         def make_conv(in_planes: int, out_planes: int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False):
             return conv_factory(
@@ -130,8 +129,6 @@ class BitResNetModel(Module):
             if overrides:
                 config = config.with_overrides(**overrides)
 
-        if config.use_bitconv and config.quant_type is None:
-            raise ValueError("quant_type must be provided when use_bitconv=True")
 
         self.config = config
 
@@ -140,7 +137,6 @@ class BitResNetModel(Module):
             num_classes=config.num_classes,
             base_channels=config.base_channels,
             block_layers=config.block_layers,
-            use_bitconv=config.use_bitconv,
             quant_type=config.quant_type,
         )
 

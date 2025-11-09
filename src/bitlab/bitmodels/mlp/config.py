@@ -19,6 +19,5 @@ class BitMLPConfig(BaseBitModelConfig):
     input_size: int = Field(default=28 * 28)
     hidden_dims: Tuple[int, ...] = Field(default=(256, 256))
     num_classes: int = Field(default=10)
-    use_bitlinear: bool = Field(default=False)
     quant_type: str | None = Field(default=None)
 

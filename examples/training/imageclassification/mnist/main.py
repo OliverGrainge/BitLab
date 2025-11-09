@@ -65,13 +65,10 @@ def main(config_path: str) -> None:
     )
 
     # Build model via BitMLPConfig/Model
-    layer_type = config["model"]["layer_type"]
-    use_bitlinear = layer_type == "bitlinear"
     model_config = BitMLPConfig(
         input_size=config["model"].get("input_size", 28 * 28),
         hidden_dims=tuple(config["model"].get("hidden_dims", [256, 256])),
         num_classes=config["num_classes"],
-        use_bitlinear=use_bitlinear,
         quant_type=config["model"].get("quant_type"),
     )
     model = BitMLPModel(model_config)

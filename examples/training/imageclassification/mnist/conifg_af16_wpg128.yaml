@@ -43,7 +43,6 @@ num_samples_to_log: 16
 
 # Model architecture settings
 model:
-  layer_type: "bitlinear"
   quant_type: "af16_wpg128"
   hidden_dims: [512, 256]
 

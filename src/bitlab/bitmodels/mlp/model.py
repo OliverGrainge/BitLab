@@ -20,27 +20,21 @@ class BitMLP(Module):
         input_size: int,
         hidden_dims: Iterable[int],
         num_classes: int,
-        use_bitlinear: bool,
         quant_type: Optional[str] = None,
     ) -> None:
         super().__init__()
 
         hidden_dims = list(hidden_dims)
+        self.quant_type = quant_type
         if not hidden_dims:
             hidden_dims = [256]
-
-        if use_bitlinear:
-            if quant_type is None:
-                raise ValueError("quant_type must be specified when use_bitlinear=True")
-            linear_factory = partial(BitLinear, quant_type=quant_type)
-        else:
-            linear_factory = nn.Linear
 
         layers: list[nn.Module] = []
         prev_dim = input_size
 
         for hidden_dim in hidden_dims:
-            layers.append(linear_factory(prev_dim, hidden_dim, bias=True))
+            layers.append(BitLinear(prev_dim, hidden_dim, bias=True, quant_type=quant_type))
+            layers.append(nn.RMSNorm(hidden_dim))
             layers.append(nn.ReLU(inplace=True))
             prev_dim = hidden_dim
 

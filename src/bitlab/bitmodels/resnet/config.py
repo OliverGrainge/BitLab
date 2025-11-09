@@ -21,6 +21,5 @@ class BitResNetConfig(BaseBitModelConfig):
     in_channels: int = Field(default=3)
     base_channels: int = Field(default=64)
     block_layers: Tuple[int, int, int, int] = Field(default=(2, 2, 2, 2))
-    use_bitconv: bool = Field(default=False)
     quant_type: str | None = Field(default=None)
 

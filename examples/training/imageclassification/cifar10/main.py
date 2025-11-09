@@ -46,7 +46,6 @@ def main(config_path: str) -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(exist_ok=True)
     
-    print(f"Layer type: {config['model']['layer_type']}")
     print(f"Quantization type: {config['model']['quant_type']}")
     print(f"Run name: {config['run_name']}")
     print(f"Config file: {config_path}\n")
@@ -62,14 +61,11 @@ def main(config_path: str) -> None:
     )
     
     # Build model via BitResNetConfig/Model
-    layer_type = config["model"]["layer_type"]
-    use_bitconv = layer_type == "bitconv"
     model_config = BitResNetConfig(
         num_classes=config["num_classes"],
         in_channels=config["model"].get("in_channels", 3),
         base_channels=config["model"].get("base_channels", 64),
         block_layers=tuple(config["model"].get("block_layers", [2, 2, 2, 2])),
-        use_bitconv=use_bitconv,
         quant_type=config["model"].get("quant_type"),
     )
     model = BitResNetModel(model_config)
