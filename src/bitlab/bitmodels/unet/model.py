@@ -1,9 +1,10 @@
 import math
-from typing import Optional, Tuple
+from typing import Any, ClassVar, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from bitlab.bitmodels.base import BaseBitModel
 
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.unet.config import BitUNetConfig
@@ -395,7 +396,7 @@ class BitUNet(nn.Module):
 
 
 @register_bitmodel("quantized_bitunet")
-class BitUNetModel(nn.Module):
+class BitUNetModel(BaseBitModel):
     """
     Bit U-Net Model (quantized)
 
@@ -403,70 +404,35 @@ class BitUNetModel(nn.Module):
     remains configurable so callers can select the quantization type.
     """
 
+    config_cls: ClassVar[type[BitUNetConfig]] = BitUNetConfig
+
     def __init__(
         self,
         config: Optional[BitUNetConfig] = None,
-        quant_type: str = "ai8pc_wpt",
-        **overrides,
+        quant_type: Optional[str] = None,
+        **overrides: Any,
     ):
-        super().__init__()
+        updates: dict[str, Any] = dict(overrides)
+        if quant_type is not None:
+            updates.setdefault("quant_type", quant_type)
 
-        if config is None:
-            # Create config with overrides including quantization settings
-            config_dict = {**overrides, "quant_type": quant_type}
-            config = BitUNetConfig(**config_dict)
-        else:
-            if not isinstance(config, BitUNetConfig):
-                raise TypeError("config must be a BitUNetConfig instance or None")
-            # Apply overrides including quantization settings
-            if overrides or quant_type != "ai8pc_wpc":
-                config = config.with_overrides(quant_type=quant_type, **overrides)
-
-        self.config = config
-        self.quant_type = quant_type
-        # Cache frequently used fields for convenience
-        in_channels = config.in_channels
-        out_channels = config.out_channels
-        model_channels = config.model_channels
-        num_res_blocks = config.num_res_blocks
-        attention_resolutions = config.attention_resolutions
-        dropout = config.dropout
-        channel_mult = config.channel_mult
-        num_heads = config.num_heads
-        use_scale_shift_norm = config.use_scale_shift_norm
-
-        # Time embedding dimension
-        time_emb_dim = model_channels * 4
-
-        # Create the quantized denoising U-Net
-        self.model = BitUNet(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            model_channels=model_channels,
-            num_res_blocks=num_res_blocks,
-            attention_resolutions=attention_resolutions,
-            dropout=dropout,
-            channel_mult=channel_mult,
-            num_heads=num_heads,
-            time_emb_dim=time_emb_dim,
-            use_scale_shift_norm=use_scale_shift_norm,
-            quant_type=quant_type,
-        )
+        super().__init__(config=config, **updates)
 
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
         return self.model(x, timesteps)
 
-    def deploy(self):
-        """
-        Switch the model to deployment mode by calling _deploy on child modules
-        that expose it (e.g., BitConv2d). Assumes quantized modules exist.
-        """
-        def deploy_recursive(module):
-            for name, child in module.named_children():
-                if hasattr(child, "_deploy"):
-                    child._deploy()
-                else:
-                    deploy_recursive(child)
-
-        deploy_recursive(self.model)
-        return self
+    def build_model(self, config: BitUNetConfig) -> nn.Module:
+        time_emb_dim = config.model_channels * 4
+        return BitUNet(
+            in_channels=config.in_channels,
+            out_channels=config.out_channels,
+            model_channels=config.model_channels,
+            num_res_blocks=config.num_res_blocks,
+            attention_resolutions=config.attention_resolutions,
+            dropout=config.dropout,
+            channel_mult=config.channel_mult,
+            num_heads=config.num_heads,
+            time_emb_dim=time_emb_dim,
+            use_scale_shift_norm=config.use_scale_shift_norm,
+            quant_type=config.quant_type,
+        )

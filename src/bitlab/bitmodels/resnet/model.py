@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Optional, Sequence
+from typing import Any, ClassVar, Optional, Sequence
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 from bitlab.bnn import Module
 from bitlab.bnn.bitlayers import BitConv2d
+from bitlab.bitmodels.base import BaseBitModel
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.resnet.config import BitResNetConfig
 
 
-class BasicBlock(nn.Module):
+class BasicBlock(BaseBitModel):
     """ResNet basic block that can swap convolution implementations."""
 
     expansion = 1
@@ -115,31 +117,20 @@ class BitResNet(Module):
 
 
 @register_bitmodel("bitresnet")
-class BitResNetModel(Module):
+class BitResNetModel(BaseBitModel):
     """BitResNetModel wraps the ResNet architecture with config support."""
 
-    def __init__(self, config: Optional[BitResNetConfig] = None, **overrides) -> None:
-        super().__init__()
+    config_cls: ClassVar[type[BitResNetConfig]] = BitResNetConfig
 
-        if config is None:
-            config = BitResNetConfig(**overrides)
-        else:
-            if not isinstance(config, BitResNetConfig):
-                raise TypeError("config must be a BitResNetConfig instance or None")
-            if overrides:
-                config = config.with_overrides(**overrides)
+    def __init__(self, config: Optional[BitResNetConfig] = None, **overrides: Any) -> None:
+        super().__init__(config=config, **overrides)
 
-
-        self.config = config
-
-        self.model = BitResNet(
+    def build_model(self, config: BitResNetConfig) -> nn.Module:
+        return BitResNet(
             in_channels=config.in_channels,
             num_classes=config.num_classes,
             base_channels=config.base_channels,
             block_layers=config.block_layers,
             quant_type=config.quant_type,
         )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
 

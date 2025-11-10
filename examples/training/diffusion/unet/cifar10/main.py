@@ -53,7 +53,9 @@ def main(config_path: str) -> None:
     )
 
     quant_type = config["model"].get("quant_type", BitUNetConfig.model_fields["quant_type"].default)
+    print(f"Run name: {config['run_name']}")
     print(f"Quantization type: {quant_type}")
+    print(f"Config file: {config_path}\n")
 
     model_config = BitUNetConfig(
         image_size=config["model"]["image_size"],
@@ -124,9 +126,11 @@ def main(config_path: str) -> None:
     ]
 
     logger = WandbLogger(
-        project="bitddpm_unet",
-        name="bitddpm_unet",
+        project=config["wandb_project"],
+        entity=config.get("wandb_entity"),
+        name=config["run_name"],
         save_dir=str(log_dir),
+        config=config,
     )
 
     trainer_kwargs = dict(

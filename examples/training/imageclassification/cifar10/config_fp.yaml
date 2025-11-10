@@ -1,4 +1,4 @@
-# Training configuration for CIFAR-10 ResNet18 with standard Conv2d layers
+# Training configuration for CIFAR-10 ResNet18 (full precision)
 
 # Run settings
 run_name: "resnet18-fp32"

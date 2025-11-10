@@ -1,4 +1,4 @@
-# Training configuration for MNIST MLP with BitLinear layers (ai8pc_wpt)
+# Training configuration for MNIST MLP with BitLinear layers (af16_wpg128)
 
 # Run settings
 run_name: "af16_wpg128"

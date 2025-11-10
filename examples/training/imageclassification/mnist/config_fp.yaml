@@ -1,4 +1,4 @@
-# Training configuration for MNIST MLP with BitLinear layers (ai8pc_wpt)
+# Training configuration for MNIST MLP with BitLinear layers (full precision)
 
 # Run settings
 run_name: "full-precision"
@@ -43,6 +43,6 @@ num_samples_to_log: 16
 
 # Model architecture settings
 model:
-  quant_type: "none"
+  quant_type: null
   hidden_dims: [512, 256]
 

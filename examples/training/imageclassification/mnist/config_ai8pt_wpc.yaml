@@ -1,4 +1,4 @@
-# Training configuration for MNIST MLP with BitLinear layers (ai8pc_wpt)
+# Training configuration for MNIST MLP with BitLinear layers (ai8pt_wpc)
 
 # Run settings
 run_name: "ai8pt_wpc"

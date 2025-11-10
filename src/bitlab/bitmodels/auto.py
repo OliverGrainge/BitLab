@@ -20,7 +20,6 @@ def register_bitmodel(model_type: str):
 
 
 
-
 class BitAutoModel:
     @classmethod
     def from_config(

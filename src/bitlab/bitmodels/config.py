@@ -55,5 +55,4 @@ class BaseBitModelConfig(BaseModel):
         return config_cls.from_dict(data)
 
 
-# Backwards compatibility alias for older imports
-BaseModelConfig = BaseBitModelConfig
+

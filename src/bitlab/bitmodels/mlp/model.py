@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Iterable, Optional
+from typing import Any, ClassVar, Iterable, Optional
 
 import torch
 import torch.nn as nn
 
+import bitlab.bnn as bnn 
 from bitlab.bnn import Module
 from bitlab.bnn.bitlayers import BitLinear
+from bitlab.bitmodels.base import BaseBitModel
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.mlp.config import BitMLPConfig
 
@@ -32,8 +34,10 @@ class BitMLP(Module):
         layers: list[nn.Module] = []
         prev_dim = input_size
 
+        linear_factory = partial(BitLinear, quant_type=quant_type)
+
         for hidden_dim in hidden_dims:
-            layers.append(BitLinear(prev_dim, hidden_dim, bias=True, quant_type=quant_type))
+            layers.append(linear_factory(prev_dim, hidden_dim, bias=True))
             layers.append(nn.RMSNorm(hidden_dim))
             layers.append(nn.ReLU(inplace=True))
             prev_dim = hidden_dim
@@ -47,33 +51,19 @@ class BitMLP(Module):
 
 
 @register_bitmodel("bitmlp")
-class BitMLPModel(Module):
+class BitMLPModel(BaseBitModel):
     """BitMLPModel wraps the MLP architecture with registry + config support."""
 
-    def __init__(self, config: Optional[BitMLPConfig] = None, **overrides) -> None:
-        super().__init__()
+    config_cls: ClassVar[type[BitMLPConfig]] = BitMLPConfig
 
-        if config is None:
-            config = BitMLPConfig(**overrides)
-        else:
-            if not isinstance(config, BitMLPConfig):
-                raise TypeError("config must be a BitMLPConfig instance or None")
-            if overrides:
-                config = config.with_overrides(**overrides)
+    def __init__(self, config: Optional[BitMLPConfig] = None, **overrides: Any) -> None:
+        super().__init__(config=config, **overrides)
 
-        if config.use_bitlinear and config.quant_type is None:
-            raise ValueError("quant_type must be provided when use_bitlinear=True")
-
-        self.config = config
-
-        self.model = BitMLP(
+    def build_model(self, config: BitMLPConfig) -> nn.Module:
+        return BitMLP(
             input_size=config.input_size,
             hidden_dims=config.hidden_dims,
             num_classes=config.num_classes,
-            use_bitlinear=config.use_bitlinear,
             quant_type=config.quant_type,
         )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
 

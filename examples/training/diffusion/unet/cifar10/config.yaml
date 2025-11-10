@@ -1,4 +1,9 @@
-# Training Configuration for BitUNet DDPM on CIFAR10
+# Training configuration for BitUNet DDPM on CIFAR-10
+
+# Run settings
+run_name: "bitddpm-unet"
+wandb_project: "bitlab-cifar10"
+wandb_entity: null
 
 # Trainer settings
 max_steps: 800000  # CIFAR-10 benefits from longer training
@@ -18,16 +23,16 @@ val_split: 0.02
 seed: 42
 
 # Optimizer settings
+optimizer: "adamw"
 learning_rate: 0.0001  # Lower LR is more stable for diffusion models
 weight_decay: 0.0
-optimizer: "adamw"
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_epsilon: 1.0e-8
 
 # Learning rate scheduler settings
-lr_warmup_steps: 5000  # Longer warmup for stability
 lr_scheduler: "constant"  # Constant works well after warmup
+lr_warmup_steps: 5000  # Longer warmup for stability
 max_lr_steps: null
 
 # Diffusion settings
@@ -47,6 +52,11 @@ num_sample_steps: 250  # Use more steps for better quality validation samples
 sample_every_n_steps: 5000
 num_samples: 16
 
+# Logging settings
+grad_norm_log_every_n_steps: 100
+weight_histogram_log_every_n_epochs: 1
+sample_log_every_n_epochs: 1
+
 # Model architecture settings
 model:
   image_size: 32
@@ -58,4 +68,4 @@ model:
   num_res_blocks: 2
   channel_mult: [1, 2, 2, 2]  # Good progression for 32x32
   dropout: 0.1  # Good regularization level
-  quant_type: ai8pc_wpt
+  quant_type: "ai8pc_wpt"
