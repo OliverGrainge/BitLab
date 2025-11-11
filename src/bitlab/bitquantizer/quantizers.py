@@ -14,26 +14,50 @@ __all__ = ["QuantizerFunction", "NoQuantizer", "dequantize", "build_quantizer_cl
 
 
 def dequantize(scale: Tensor, qtensor: Tensor) -> Tensor:
-    """Expand scale as needed and reconstruct the floating-point tensor."""
+    """Expand scale as needed and reconstruct the floating-point tensor.
+    
+    Supports various quantization schemes:
+    - Per-tensor (scalar scale)
+    - Per-token/channel (scale with keepdim=True dimensions)
+    - Per-group (scale smaller than qtensor in last dimension)
+    
+    Args:
+        scale: Scale tensor from quantization
+        qtensor: Quantized tensor
+        
+    Returns:
+        Dequantized tensor with same shape as qtensor
+    """
     if not isinstance(scale, torch.Tensor):
         raise TypeError(f"Expected scale to be torch.Tensor, got {type(scale)}")
 
     if scale.dtype != qtensor.dtype:
         scale = scale.to(qtensor.dtype)
 
+    # Scalar scale (per-tensor quantization)
     if scale.numel() == 1:
         return scale * qtensor
 
-    # Exact broadcast match (per-channel, per-token, etc.)
+    # Direct broadcast (per-channel, per-token with keepdim=True)
+    # This handles:
+    # - 2D: [batch, 1] scale with [batch, features] qtensor
+    # - 3D: [batch, seq_length, 1] scale with [batch, seq_length, hidden_dim] qtensor
+    # - 4D: [batch, channels, 1, 1] scale with [batch, channels, height, width] qtensor
     try:
         return scale * qtensor
     except RuntimeError:
         pass
 
-    # Per-group (e.g. wpg) where scale < qtensor along last dimension.
-    if scale.ndim == 2 and qtensor.ndim == 2 and scale.shape[1] <= qtensor.shape[1]:
+    # Per-group quantization (e.g. wpg) where scale < qtensor along last dimension
+    if scale.ndim == 2 and qtensor.ndim == 2 and scale.shape[1] < qtensor.shape[1]:
         group_size = math.ceil(qtensor.shape[1] / scale.shape[1])
         expanded = scale.repeat_interleave(group_size, dim=1)[..., : qtensor.shape[1]]
+        return expanded * qtensor
+    
+    # 3D per-group case: [batch, seq_length, num_groups] -> [batch, seq_length, hidden_dim]
+    if scale.ndim == 3 and qtensor.ndim == 3 and scale.shape[2] < qtensor.shape[2]:
+        group_size = math.ceil(qtensor.shape[2] / scale.shape[2])
+        expanded = scale.repeat_interleave(group_size, dim=2)[..., : qtensor.shape[2]]
         return expanded * qtensor
 
     raise RuntimeError(

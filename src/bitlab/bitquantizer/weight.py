@@ -5,15 +5,13 @@ from typing import Tuple
 import torch
 
 
-def quantize_weight_wpt(
-    w: torch.Tensor, eps: float = 1e-6
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize weights using wpt (ternary per-tensor, global) scheme.
 
-    Single scale for entire tensor regardless of 2D or 4D.
-    """
-    qws = w.abs().mean()  # Global mean for all dims
-    qw = (w / (qws + eps)).round().clamp(-1, 1)
+def quantize_weight_wpt(
+    w: torch.Tensor, eps: float = 1e-5
+) -> Tuple[torch.Tensor, torch.Tensor]:
+
+    qws = w.abs().mean().clamp(min=eps)  # Global mean for all dims
+    qw = (w / qws).round().clamp(-1, 1)
     return qws, qw
 
 

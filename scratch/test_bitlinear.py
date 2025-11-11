@@ -1,5 +1,23 @@
 """Binary linear layer implementations with shared quantization utilities."""
 
+from turtle import hideturtle
+from typing import Optional
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from bitlab.bitquantizer import BitQuantizer
+from bitlab.bnn.functional import bitlinear
+from bitlab.bitquantizer import quantize_act, quantize_weight
+import bitlab.bnn as bnn
+
+"""Binary linear layer implementations with shared quantization utilities."""
+
+from typing import Optional
+
+"""Binary linear layer implementations with shared quantization utilities."""
+
 from typing import Optional
 
 import torch
@@ -10,7 +28,8 @@ from bitlab.bitquantizer import BitQuantizer
 from bitlab.bnn.functional import bitlinear
 
 
-class BitLinear(nn.Module):
+
+class AutoBitLinear(nn.Module):
     """
     A binary neural network linear layer that quantizes weights to {-1, 0, 1}.
 
@@ -84,14 +103,64 @@ class BitLinear(nn.Module):
         # Switch to optimized forward pass
         self.forward = self._deploy_forward
 
+    def weight_quant(self, weight: torch.Tensor) -> torch.Tensor:
+        dtype = weight.dtype
+        weight = weight.float()
+        scale = 1.0 / weight.abs().mean().clamp_(min=1e-5)
+        weight = (weight * scale).round().clamp(-1, 1) / scale
+        return weight.to(dtype)
+
+    def act_quant(self, activation: torch.Tensor) -> torch.Tensor:
+        dtype = activation.dtype
+        activation = activation.float()
+        scale = 127 / activation.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
+        activation = (activation * scale).round().clamp(-128, 127) / scale
+        return activation.to(dtype)
+
     def _deploy_forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run the quantized inference pathway after `deploy` has packed the weights."""
         return bitlinear(x, self.qws, self.qw, self.bias, self.eps, self.quant_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply quantization-aware linear transformation suitable for training."""
-        dqx, dqw = self.quantizer(x, self.weight)
-        return F.linear(dqx, dqw, self.bias)
+        weight = self.weight_quant(self.weight)
+        x = self.act_quant(x)
+        output = F.linear(x, weight, self.bias)
+        return output
 
-    def __repr__(self): 
-        return "BBitLinear"
+    def __repr__(self) -> str:
+        return f"MyBitLinear(in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}, eps={self.eps}, quant_type={self.quant_type})"
+
+
+
+
+
+if __name__ == "__main__": 
+    seq_len = 1204 
+    hidden_size = 2048
+    x = torch.randn(12, seq_len, hidden_size) 
+    linear = nn.Sequential(nn.Linear(hidden_size, hidden_size, bias=False), nn.Linear(hidden_size, hidden_size, bias=False))
+    linear_sd = linear.state_dict()
+    
+    # Create AutoBitLinear for fair comparison
+    target = nn.Sequential(
+        bnn.BitLinear(hidden_size, hidden_size, bias=False, quant_type="ai8ptk_wpt", eps=1e-5),
+        bnn.BitLinear(hidden_size, hidden_size, bias=False, quant_type="ai8ptk_wpt", eps=1e-5),
+    )
+    reference = nn.Sequential(
+        AutoBitLinear(hidden_size, hidden_size, bias=False), 
+        AutoBitLinear(hidden_size, hidden_size, bias=False)
+    )
+
+    print(reference)
+    print(target)
+
+    target.load_state_dict(linear_sd)
+    reference.load_state_dict(linear_sd)
+    target.eval()
+    reference.eval()
+    
+    y_hat = target(x)
+    y = reference(x)
+    print("y_hat", y_hat.shape, "y", y.shape)
+    print("Difference:", torch.max(torch.abs(y_hat - y)))
