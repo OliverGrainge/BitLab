@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 import bitlab.bnn as bnn
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from dataclasses import dataclass
 
 
@@ -167,7 +167,7 @@ class RotaryEmbedding(nn.Module):
 
 
 class Attention(nn.Module):
-    """Multi-headed attention with BitLinear projections"""
+    """Multi-headed attention with BitLinear projections and KV cache support"""
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -212,8 +212,10 @@ class Attention(nn.Module):
         self, 
         hidden_states: torch.Tensor, 
         position_embeddings: Tuple[torch.Tensor, torch.Tensor], 
-        attention_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        attention_mask: Optional[torch.Tensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         batch_size, seq_length, _ = hidden_states.shape
         
         # Project queries, keys, values
@@ -229,6 +231,15 @@ class Attention(nn.Module):
         # Apply rotary embeddings
         cos, sin = position_embeddings
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        
+        # Use KV cache if available
+        if past_key_value is not None:
+            # Concatenate past keys and values with current ones
+            key_states = torch.cat([past_key_value[0], key_states], dim=2)
+            value_states = torch.cat([past_key_value[1], value_states], dim=2)
+        
+        # Store current key/value states for next iteration
+        past_key_value = (key_states, value_states) if use_cache else None
         
         # Repeat KV for grouped-query attention
         key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -253,11 +264,11 @@ class Attention(nn.Module):
         attn_output = self.attn_sub_norm(attn_output)
         attn_output = self.o_proj(attn_output)
         
-        return attn_output
+        return attn_output, past_key_value
 
 
 class DecoderLayer(nn.Module):
-    """Transformer decoder layer with pre-normalization"""
+    """Transformer decoder layer with pre-normalization and KV cache support"""
     def __init__(self, config, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -274,14 +285,18 @@ class DecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         position_embeddings: Tuple[torch.Tensor, torch.Tensor],
         attention_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         # Self-attention with residual
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-        hidden_states = self.self_attn(
+        hidden_states, present_key_value = self.self_attn(
             hidden_states=hidden_states,
             position_embeddings=position_embeddings,
             attention_mask=attention_mask,
+            past_key_value=past_key_value,
+            use_cache=use_cache,
         )
         hidden_states = residual + hidden_states
 
@@ -291,11 +306,11 @@ class DecoderLayer(nn.Module):
         hidden_states = self.mlp(hidden_states)
         hidden_states = residual + hidden_states
         
-        return hidden_states
+        return hidden_states, present_key_value
 
 
 class BitNetModel(nn.Module):
-    """Complete BitNet Transformer Model"""
+    """Complete BitNet Transformer Model with KV cache support"""
     def __init__(self, config: BitNetConfig):
         super().__init__()
         self.config = config
@@ -326,13 +341,23 @@ class BitNetModel(nn.Module):
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-    ) -> torch.Tensor:
+        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[List[Tuple[torch.Tensor, torch.Tensor]]]]:
         batch_size, seq_length = input_ids.shape
+        
+        # Determine cache length and total sequence length
+        past_key_values_length = 0
+        if past_key_values is not None and len(past_key_values) > 0:
+            past_key_values_length = past_key_values[0][0].shape[2]
         
         # Generate position IDs if not provided
         if position_ids is None:
             position_ids = torch.arange(
-                seq_length, dtype=torch.long, device=input_ids.device
+                past_key_values_length,
+                seq_length + past_key_values_length,
+                dtype=torch.long,
+                device=input_ids.device
             ).unsqueeze(0).expand(batch_size, -1)
         
         # Embed tokens
@@ -341,35 +366,58 @@ class BitNetModel(nn.Module):
         # Compute rotary embeddings
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
         
-        # Create causal mask matching HF implementation
-        # HF creates a 4D mask: (batch, 1, seq_len, seq_len) with -inf for masked positions
+        # Create causal mask
+        # For cached generation, we only need to mask the new token against all previous tokens
         if attention_mask is None:
-            # Create causal mask (lower triangular)
-            causal_mask = torch.triu(
-                torch.full((seq_length, seq_length), float('-inf'), dtype=hidden_states.dtype, device=hidden_states.device),
-                diagonal=1
-            )
-            # Expand to (batch, 1, seq_len, seq_len)
-            causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, seq_length, seq_length)
+            if past_key_values_length > 0:
+                # During generation with cache, only need mask for current position
+                # Current token can attend to all previous tokens (including cached ones)
+                causal_mask = torch.zeros(
+                    (batch_size, 1, seq_length, seq_length + past_key_values_length),
+                    dtype=hidden_states.dtype,
+                    device=hidden_states.device
+                )
+                # Mask future positions in the current sequence
+                if seq_length > 1:
+                    causal_mask[:, :, :, past_key_values_length:] = torch.triu(
+                        torch.full((seq_length, seq_length), float('-inf'), dtype=hidden_states.dtype, device=hidden_states.device),
+                        diagonal=1
+                    ).unsqueeze(0).unsqueeze(0)
+            else:
+                # Initial forward pass - standard causal mask
+                causal_mask = torch.triu(
+                    torch.full((seq_length, seq_length), float('-inf'), dtype=hidden_states.dtype, device=hidden_states.device),
+                    diagonal=1
+                )
+                # Expand to (batch, 1, seq_len, seq_len)
+                causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, seq_length, seq_length)
         else:
             causal_mask = attention_mask
         
         # Pass through transformer layers
-        for decoder_layer in self.layers:
-            hidden_states = decoder_layer(
+        present_key_values = [] if use_cache else None
+        for idx, decoder_layer in enumerate(self.layers):
+            past_key_value = past_key_values[idx] if past_key_values is not None else None
+            
+            hidden_states, present_key_value = decoder_layer(
                 hidden_states,
                 position_embeddings=position_embeddings,
                 attention_mask=causal_mask,
+                past_key_value=past_key_value,
+                use_cache=use_cache,
             )
+            
+            if use_cache:
+                present_key_values.append(present_key_value)
         
         # Final normalization
         hidden_states = self.norm(hidden_states)
         
-        return hidden_states
+        return hidden_states, present_key_values
 
 
 class BitNetForCausalLM(nn.Module):
-    """BitNet model for causal language modeling"""
+    """BitNet model for causal language modeling with KV cache support"""
     def __init__(self, config: BitNetConfig):
         super().__init__()
         self.config = config
@@ -388,13 +436,17 @@ class BitNetForCausalLM(nn.Module):
         input_ids: torch.LongTensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[List[Tuple[torch.Tensor, torch.Tensor]]] = None,
         labels: Optional[torch.LongTensor] = None,
+        use_cache: bool = False,
     ) -> dict:
         # Get model outputs
-        hidden_states = self.model(
+        hidden_states, present_key_values = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
+            past_key_values=past_key_values,
+            use_cache=use_cache,
         )
         
         # Compute logits
@@ -418,6 +470,7 @@ class BitNetForCausalLM(nn.Module):
             "loss": loss,
             "logits": logits,
             "hidden_states": hidden_states,
+            "past_key_values": present_key_values,
         }
 
     @torch.no_grad()
@@ -429,14 +482,46 @@ class BitNetForCausalLM(nn.Module):
         top_k: Optional[int] = None,
         top_p: Optional[float] = None,
         do_sample: bool = True,
+        use_cache: bool = True,
     ) -> torch.LongTensor:
-        """Simple greedy/sampling generation"""
+        """
+        Generation with KV cache for improved speed.
+        
+        Args:
+            input_ids: Input token ids [batch_size, seq_len]
+            max_length: Maximum length to generate
+            temperature: Sampling temperature
+            top_k: Top-k sampling parameter
+            top_p: Nucleus sampling parameter
+            do_sample: Whether to sample or use greedy decoding
+            use_cache: Whether to use KV cache (recommended for speed)
+        
+        Returns:
+            Generated token ids [batch_size, generated_length]
+        """
         batch_size = input_ids.shape[0]
         generated = input_ids.clone()
+        past_key_values = None
         
-        for _ in range(max_length - input_ids.shape[1]):
-            # Forward pass
-            outputs = self.forward(generated)
+        for step in range(max_length - input_ids.shape[1]):
+            # For first step, pass full sequence. For subsequent steps, only pass new token
+            if step == 0:
+                model_inputs = generated
+            else:
+                model_inputs = next_token
+            
+            # Forward pass with cache
+            outputs = self.forward(
+                model_inputs,
+                past_key_values=past_key_values,
+                use_cache=use_cache,
+            )
+            
+            # Update cache for next iteration
+            if use_cache:
+                past_key_values = outputs["past_key_values"]
+            
+            # Get logits for last token and apply temperature
             logits = outputs["logits"][:, -1, :] / temperature
             
             # Apply top-k filtering
@@ -508,35 +593,3 @@ def load_weights_from_hf(model: BitNetForCausalLM, hf_model_path: str):
         print(f"Unexpected keys: {unexpected_keys}")
     
     return model
-
-
-# Example usage
-if __name__ == "__main__":
-    # Create config
-    config = BitNetConfig(
-        vocab_size=32000,
-        hidden_size=2048,
-        intermediate_size=5632,
-        num_hidden_layers=24,
-        num_attention_heads=32,
-        num_key_value_heads=8,
-        max_position_embeddings=2048,
-        hidden_act="relu2",
-    )
-    
-    # Create model
-    model = BitNetForCausalLM(config)
-    
-    # Example forward pass
-    batch_size = 2
-    seq_length = 10
-    input_ids = torch.randint(0, config.vocab_size, (batch_size, seq_length))
-    
-    # Forward pass
-    outputs = model(input_ids)
-    print(f"Logits shape: {outputs['logits'].shape}")
-    print(f"Hidden states shape: {outputs['hidden_states'].shape}")
-    
-    # Example generation
-    generated = model.generate(input_ids[:1], max_length=20, do_sample=False)
-    print(f"Generated shape: {generated.shape}")
