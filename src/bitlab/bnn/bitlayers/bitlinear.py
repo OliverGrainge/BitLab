@@ -94,4 +94,4 @@ class BitLinear(nn.Module):
         return F.linear(dqx, dqw, self.bias)
 
     def __repr__(self): 
-        return "BBitLinear"
+        return f"BitLinear(in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}, eps={self.eps}, quant_type={self.quant_type})"
