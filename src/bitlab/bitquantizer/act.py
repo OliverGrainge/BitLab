@@ -14,9 +14,9 @@ def quantize_act_abf16(
     orig_dtype = x.dtype
     qx = x.to(torch.bfloat16)
     qx = qx.to(orig_dtype)
-    # Return dummy scale of 1.0 for API consistency
-    qxs = torch.tensor(1.0, dtype=torch.bfloat16, device=x.device)
-    return qxs, qx
+    # Return dummy inverse scale of 1.0 for API consistency
+    inv_scale = torch.tensor(1.0, dtype=torch.bfloat16, device=x.device)
+    return inv_scale, qx
 
 
 def quantize_act_af16(
@@ -26,9 +26,9 @@ def quantize_act_af16(
     orig_dtype = x.dtype
     qx = x.to(torch.float16)
     qx = qx.to(orig_dtype)
-    # Return dummy scale of 1.0 for API consistency
-    qxs = torch.tensor(1.0, dtype=torch.float16, device=x.device)
-    return qxs, qx
+    # Return dummy inverse scale of 1.0 for API consistency
+    inv_scale = torch.tensor(1.0, dtype=torch.float16, device=x.device)
+    return inv_scale, qx
 
 
 def quantize_act_ai8pt(
@@ -43,19 +43,20 @@ def quantize_act_ai8pt(
         eps: Minimum scale value to prevent division by zero
         
     Returns:
-        qxs: Scale tensor (scalar)
+        inv_scale: Inverse scale tensor (scalar)
         qx: Quantized tensor with same shape as input
     """
-    qxs = x.abs().amax() / 127.0
-    qxs = qxs.clamp(min=eps)
-    qx = (x / qxs).round().clamp(-127, 127)
-    return qxs, qx
+    scale = x.abs().amax() / 127.0
+    scale = scale.clamp(min=eps)
+    inv_scale = 1.0 / scale
+    qx = (x * inv_scale).round().clamp(-127, 127)
+    return inv_scale, qx
 
 @torch.compile
 def quantize_act_ai8ptk(x: torch.Tensor, eps: float = 1e-5) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Returns: (inv_scale, qtensor)
-      - inv_scale: multiplier to apply to qtensor to reconstruct float (i.e. 1/scale_internal)
+      - inv_scale: multiplier applied to activations before rounding (i.e. 1/scale)
       - qtensor: quantized values (kept in same dtype as input to avoid dtype surprises)
     """
     if x.ndim not in (2, 3):
@@ -65,10 +66,8 @@ def quantize_act_ai8ptk(x: torch.Tensor, eps: float = 1e-5) -> Tuple[torch.Tenso
     x_float = x.float()
 
     maxval = x_float.abs().amax(dim=-1, keepdim=True).clamp(min=eps)   # shape (...,1)
-    scale_internal = 127.0 / maxval                                    # what we multiply floats by to get ints
-    q = (x_float * scale_internal).round().clamp(-128, 127)            # integer-valued tensor (still float dtype)
-
-    inv_scale = 1.0 / scale_internal                                   # multiplier so: deq = inv_scale * q == q / scale_internal
+    inv_scale = 127.0 / maxval                                         # multiplier applied before rounding
+    q = (x_float * inv_scale).round().clamp(-128, 127)                 # integer-valued tensor (still float dtype)
 
     # keep qtensor in same dtype as input to avoid dequantize casting surprises
     return inv_scale.to(orig_dtype), q.to(orig_dtype)
@@ -83,7 +82,7 @@ def quantize_act_ai8pc(
         eps: Minimum scale value to prevent division by zero
         
     Returns:
-        qxs: Scale tensor [batch, channels, 1, 1]
+        inv_scale: Inverse scale tensor [batch, channels, 1, 1]
         qx: Quantized tensor [batch, channels, height, width]
     """
     if x.ndim != 4:
@@ -91,7 +90,8 @@ def quantize_act_ai8pc(
             f"ai8pc expects 4D conv tensor (batch, channels, height, width), got {x.ndim}D"
         )
 
-    qxs = x.abs().amax(dim=(2, 3), keepdim=True) / 127.0
-    qxs = qxs.clamp(min=eps)
-    qx = (x / qxs).round().clamp(-127, 127)
-    return qxs, qx
+    scale = x.abs().amax(dim=(2, 3), keepdim=True) / 127.0
+    scale = scale.clamp(min=eps)
+    inv_scale = 1.0 / scale
+    qx = (x * inv_scale).round().clamp(-127, 127)
+    return inv_scale, qx

@@ -13,55 +13,55 @@ QuantFn = Callable[[Tensor, float], Tuple[Tensor, Tensor]]
 __all__ = ["QuantizerFunction", "NoQuantizer", "dequantize", "build_quantizer_class"]
 
 
-def dequantize(scale: Tensor, qtensor: Tensor) -> Tensor:
-    """Expand scale as needed and reconstruct the floating-point tensor.
+def dequantize(inv_scale: Tensor, qtensor: Tensor) -> Tensor:
+    """Expand inverse scale as needed and reconstruct the floating-point tensor.
     
     Supports various quantization schemes:
-    - Per-tensor (scalar scale)
-    - Per-token/channel (scale with keepdim=True dimensions)
-    - Per-group (scale smaller than qtensor in last dimension)
+    - Per-tensor (scalar inverse scale)
+    - Per-token/channel (inverse scale with keepdim=True dimensions)
+    - Per-group (inverse scale smaller than qtensor in last dimension)
     
     Args:
-        scale: Scale tensor from quantization
+        inv_scale: Inverse scale tensor from quantization
         qtensor: Quantized tensor
         
     Returns:
         Dequantized tensor with same shape as qtensor
     """
-    if not isinstance(scale, torch.Tensor):
-        raise TypeError(f"Expected scale to be torch.Tensor, got {type(scale)}")
+    if not isinstance(inv_scale, torch.Tensor):
+        raise TypeError(f"Expected inv_scale to be torch.Tensor, got {type(inv_scale)}")
 
-    if scale.dtype != qtensor.dtype:
-        scale = scale.to(qtensor.dtype)
+    if inv_scale.dtype != qtensor.dtype:
+        inv_scale = inv_scale.to(qtensor.dtype)
 
-    # Scalar scale (per-tensor quantization)
-    if scale.numel() == 1:
-        return scale * qtensor
+    # Scalar inverse scale (per-tensor quantization)
+    if inv_scale.numel() == 1:
+        return qtensor / inv_scale
 
     # Direct broadcast (per-channel, per-token with keepdim=True)
     # This handles:
-    # - 2D: [batch, 1] scale with [batch, features] qtensor
-    # - 3D: [batch, seq_length, 1] scale with [batch, seq_length, hidden_dim] qtensor
-    # - 4D: [batch, channels, 1, 1] scale with [batch, channels, height, width] qtensor
+    # - 2D: [batch, 1] inverse scale with [batch, features] qtensor
+    # - 3D: [batch, seq_length, 1] inverse scale with [batch, seq_length, hidden_dim] qtensor
+    # - 4D: [batch, channels, 1, 1] inverse scale with [batch, channels, height, width] qtensor
     try:
-        return scale * qtensor
+        return qtensor / inv_scale
     except RuntimeError:
         pass
 
-    # Per-group quantization (e.g. wpg) where scale < qtensor along last dimension
-    if scale.ndim == 2 and qtensor.ndim == 2 and scale.shape[1] < qtensor.shape[1]:
-        group_size = math.ceil(qtensor.shape[1] / scale.shape[1])
-        expanded = scale.repeat_interleave(group_size, dim=1)[..., : qtensor.shape[1]]
-        return expanded * qtensor
+    # Per-group quantization (e.g. wpg) where inverse scale < qtensor along last dimension
+    if inv_scale.ndim == 2 and qtensor.ndim == 2 and inv_scale.shape[1] < qtensor.shape[1]:
+        group_size = math.ceil(qtensor.shape[1] / inv_scale.shape[1])
+        expanded = inv_scale.repeat_interleave(group_size, dim=1)[..., : qtensor.shape[1]]
+        return qtensor / expanded
     
     # 3D per-group case: [batch, seq_length, num_groups] -> [batch, seq_length, hidden_dim]
-    if scale.ndim == 3 and qtensor.ndim == 3 and scale.shape[2] < qtensor.shape[2]:
-        group_size = math.ceil(qtensor.shape[2] / scale.shape[2])
-        expanded = scale.repeat_interleave(group_size, dim=2)[..., : qtensor.shape[2]]
-        return expanded * qtensor
+    if inv_scale.ndim == 3 and qtensor.ndim == 3 and inv_scale.shape[2] < qtensor.shape[2]:
+        group_size = math.ceil(qtensor.shape[2] / inv_scale.shape[2])
+        expanded = inv_scale.repeat_interleave(group_size, dim=2)[..., : qtensor.shape[2]]
+        return qtensor / expanded
 
     raise RuntimeError(
-        f"Unable to broadcast scale shape {tuple(scale.shape)} with qtensor shape {tuple(qtensor.shape)}"
+        f"Unable to broadcast inverse scale shape {tuple(inv_scale.shape)} with qtensor shape {tuple(qtensor.shape)}"
     )
 
 
