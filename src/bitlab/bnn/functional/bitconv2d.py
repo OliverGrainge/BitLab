@@ -1,20 +1,19 @@
 """Functional counterpart used by deployment-ready binary convolution layers."""
 
-import torch
-import torch.nn.functional as F
 from typing import Optional, Tuple, Union
 
-from bitlab.bitquantizer import quantize_weight, quantize_act, dequantize, _parse_quant_type
+import torch
+import torch.nn.functional as F
+
+from bitlab.bitquantizer import (_parse_quant_type, dequantize, quantize_act,
+                                 quantize_weight)
 
 
 class _BitConv2dFunctional:
     """Namespace + callable that mirrors the deployment API used by layers."""
 
     def prepare_weights(
-        self,
-        weight: torch.Tensor,
-        eps: float = 1e-6,
-        quant_type: str = "ai8pc_wpt"
+        self, weight: torch.Tensor, eps: float = 1e-6, quant_type: str = "ai8pc_wpt"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return weight scale and quantized tensor that the layer can stash for deploy."""
         _, weight_quant_type = _parse_quant_type(quant_type)
@@ -32,7 +31,7 @@ class _BitConv2dFunctional:
         dilation: Union[int, Tuple[int, int]] = 1,
         groups: int = 1,
         eps: float = 1e-6,
-        quant_type: str = "ai8pc_wpt"
+        quant_type: str = "ai8pc_wpt",
     ) -> torch.Tensor:
         """
         Run deployment-time binary convolution leveraging quantized buffers.
@@ -60,4 +59,3 @@ class _BitConv2dFunctional:
 
 
 bitconv2d = _BitConv2dFunctional()
-

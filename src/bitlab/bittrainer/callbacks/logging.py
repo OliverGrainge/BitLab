@@ -7,7 +7,9 @@ import torchvision
 from pytorch_lightning import Callback
 
 
-def _iter_named_parameters_by_module_type(model: torch.nn.Module) -> Dict[str, List[Tuple[str, torch.nn.Parameter]]]:
+def _iter_named_parameters_by_module_type(
+    model: torch.nn.Module,
+) -> Dict[str, List[Tuple[str, torch.nn.Parameter]]]:
     """Group named parameters by their module (layer) type."""
     grouped: Dict[str, List[Tuple[str, torch.nn.Parameter]]] = {}
 
@@ -65,7 +67,13 @@ def _log_histogram(logger, tag: str, values: torch.Tensor, global_step: int) -> 
             print(f"Warning: Could not import wandb to log histogram '{tag}'.")
 
 
-def _log_image(logger, tag: str, image: torch.Tensor, global_step: int, caption: Optional[str] = None) -> None:
+def _log_image(
+    logger,
+    tag: str,
+    image: torch.Tensor,
+    global_step: int,
+    caption: Optional[str] = None,
+) -> None:
     experiment = getattr(logger, "experiment", None)
     if experiment is None:
         return
@@ -103,7 +111,9 @@ class GradientNormLogger(Callback):
     def __init__(self, every_n_steps: int = 100) -> None:
         self.every_n_steps = every_n_steps
 
-    def on_before_optimizer_step(self, trainer, pl_module, optimizer) -> None:  # noqa: D401
+    def on_before_optimizer_step(
+        self, trainer, pl_module, optimizer
+    ) -> None:  # noqa: D401
         if trainer.logger is None:
             return
         if self.every_n_steps <= 0:
@@ -127,8 +137,14 @@ class GradientNormLogger(Callback):
                 continue
             total_norm_sq += parameter.grad.norm().item() ** 2
 
-        total_norm = total_norm_sq ** 0.5
-        pl_module.log("gradients/global_norm", total_norm, on_step=True, on_epoch=True, prog_bar=False)
+        total_norm = total_norm_sq**0.5
+        pl_module.log(
+            "gradients/global_norm",
+            total_norm,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=False,
+        )
 
 
 class WeightHistogramLogger(Callback):
@@ -152,7 +168,9 @@ class WeightHistogramLogger(Callback):
         for layer_type, param_list in layer_groups.items():
             for layer_name, parameter in param_list:
                 tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
-                _log_histogram(trainer.logger, tag, parameter.data, pl_module.global_step)
+                _log_histogram(
+                    trainer.logger, tag, parameter.data, pl_module.global_step
+                )
 
 
 class DiffusionSampleLogger(Callback):
@@ -242,7 +260,9 @@ class ClassificationVisualizationLogger(Callback):
         self._buffer_labels = []
         self._buffer_preds = []
 
-    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx: int = 0) -> None:
+    def on_validation_batch_end(
+        self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx: int = 0
+    ) -> None:
         if len(self._buffer_images) >= self.num_samples_to_log:
             return
         if batch_idx != 0:
@@ -302,10 +322,14 @@ class ClassificationVisualizationLogger(Callback):
         ]
         caption = "\n".join(caption_lines)
 
-        _log_image(trainer.logger, "val/samples", grid, pl_module.global_step, caption=caption)
+        _log_image(
+            trainer.logger, "val/samples", grid, pl_module.global_step, caption=caption
+        )
 
     @staticmethod
-    def _log_confusion_matrix(logger, confusion_matrix: torch.Tensor, global_step: int) -> None:
+    def _log_confusion_matrix(
+        logger, confusion_matrix: torch.Tensor, global_step: int
+    ) -> None:
         experiment = getattr(logger, "experiment", None)
         if experiment is None:
             return
@@ -336,4 +360,3 @@ class ClassificationVisualizationLogger(Callback):
                 )
             except ImportError:
                 print("Warning: Could not import wandb to log confusion matrix.")
-

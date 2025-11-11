@@ -1,6 +1,4 @@
-from .bitimageclassifiertrainer import BitImageClassifierTrainer
+from bitlab.bittrainer.classification.bitimageclassificationtrainer import \
+    BitImageClassificationTrainer
 
-__all__ = ["BitImageClassifierTrainer"]
-
-
-
+__all__ = ["BitImageClassificationTrainer"]

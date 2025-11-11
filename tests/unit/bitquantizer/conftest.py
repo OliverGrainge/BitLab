@@ -1,4 +1,5 @@
 """Shared fixtures and helpers for bitquantizer unit tests."""
+
 from __future__ import annotations
 
 from math import ceil
@@ -7,19 +8,15 @@ from typing import Tuple
 import pytest
 import torch
 
-from bitlab.bitquantizer.registry import (
-    ACT_QUANT_REGISTRY,
-    QUANTIZER_REGISTRY,
-    WEIGHT_QUANT_REGISTRY,
-)
+from bitlab.bitquantizer.registry import (ACT_QUANT_REGISTRY,
+                                          QUANTIZER_REGISTRY,
+                                          WEIGHT_QUANT_REGISTRY)
 
 Tensor = torch.Tensor
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
 
 
 @pytest.fixture
@@ -177,13 +174,17 @@ def conv_quantizer(request):
     return request.param
 
 
-@pytest.fixture(params=LINEAR_WEIGHT_QUANTIZERS, ids=[name for name, _ in LINEAR_WEIGHT_QUANTIZERS])
+@pytest.fixture(
+    params=LINEAR_WEIGHT_QUANTIZERS, ids=[name for name, _ in LINEAR_WEIGHT_QUANTIZERS]
+)
 def linear_weight_quantizer(request):
     """Weight quantizers valid for 2D weights."""
     return request.param
 
 
-@pytest.fixture(params=CONV_WEIGHT_QUANTIZERS, ids=[name for name, _ in CONV_WEIGHT_QUANTIZERS])
+@pytest.fixture(
+    params=CONV_WEIGHT_QUANTIZERS, ids=[name for name, _ in CONV_WEIGHT_QUANTIZERS]
+)
 def conv_weight_quantizer(request):
     """Weight quantizers valid for 4D conv weights."""
     return request.param
@@ -198,13 +199,17 @@ def linear_range_weight_quantizer(request):
     return request.param
 
 
-@pytest.fixture(params=LINEAR_ACT_QUANTIZERS, ids=[name for name, _ in LINEAR_ACT_QUANTIZERS])
+@pytest.fixture(
+    params=LINEAR_ACT_QUANTIZERS, ids=[name for name, _ in LINEAR_ACT_QUANTIZERS]
+)
 def linear_act_quantizer(request):
     """Activation quantizers valid for 2D tensors."""
     return request.param
 
 
-@pytest.fixture(params=CONV_ACT_QUANTIZERS, ids=[name for name, _ in CONV_ACT_QUANTIZERS])
+@pytest.fixture(
+    params=CONV_ACT_QUANTIZERS, ids=[name for name, _ in CONV_ACT_QUANTIZERS]
+)
 def conv_act_quantizer(request):
     """Activation quantizers valid for 4D tensors."""
     return request.param
@@ -234,4 +239,3 @@ __all__ = [
     "WEIGHT_QUANT_REGISTRY",
     "QUANTIZER_REGISTRY",
 ]
-

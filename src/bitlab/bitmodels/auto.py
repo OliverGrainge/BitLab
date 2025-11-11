@@ -1,8 +1,11 @@
 # bitlab/bitmodels/auto.py
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, Type
+
 import torch
+
 from bitlab.bitmodels.config import BaseBitModelConfig
 
 # Minimal registry for models
@@ -17,7 +20,6 @@ def register_bitmodel(model_type: str):
         return cls
 
     return deco
-
 
 
 class BitAutoModel:
@@ -50,5 +52,3 @@ class BitAutoModel:
         if eval_mode and hasattr(model, "eval"):
             model.eval()
         return model
-
-

@@ -1,20 +1,19 @@
 """Functional helpers that back the deployment path for binary linear layers."""
 
-import torch
-import torch.nn.functional as F
 from typing import Optional, Tuple
 
-from bitlab.bitquantizer import quantize_weight, quantize_act, dequantize, _parse_quant_type
+import torch
+import torch.nn.functional as F
+
+from bitlab.bitquantizer import (_parse_quant_type, dequantize, quantize_act,
+                                 quantize_weight)
 
 
 class _BitLinearFunctional:
     """Deployment helper for `BitLinear` that handles quantized state."""
 
     def prepare_weights(
-        self,
-        weight: torch.Tensor,
-        eps: float = 1e-6,
-        quant_type: str = "ai8pc_wpt"
+        self, weight: torch.Tensor, eps: float = 1e-6, quant_type: str = "ai8pc_wpt"
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return weight scale and quantized tensor for deployment buffers."""
         _, weight_quant_type = _parse_quant_type(quant_type)
@@ -28,7 +27,7 @@ class _BitLinearFunctional:
         qw: torch.Tensor,
         bias: Optional[torch.Tensor] = None,
         eps: float = 1e-6,
-        quant_type: str = "ai8pc_wpt"
+        quant_type: str = "ai8pc_wpt",
     ) -> torch.Tensor:
         """
         Execute the deployment-time linear operator using packed quantized weights.

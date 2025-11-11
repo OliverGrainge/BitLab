@@ -1,4 +1,5 @@
 """Autograd helpers for BitLab quantization schemes."""
+
 import math
 import sys
 from typing import Callable, Tuple
@@ -70,10 +71,14 @@ class QuantizerFunction(Function):
         act_quant_fn: QuantFn,
         eps: float = 1e-6,
     ) -> Tuple[Tensor, Tensor]:
-        return QuantizerFunction._forward_impl(ctx, x, w, weight_quant_fn, act_quant_fn, eps)
+        return QuantizerFunction._forward_impl(
+            ctx, x, w, weight_quant_fn, act_quant_fn, eps
+        )
 
     @staticmethod
-    def _backward_impl(ctx, grad_dqx: Tensor, grad_dqw: Tensor) -> Tuple[Tensor, Tensor]:
+    def _backward_impl(
+        ctx, grad_dqx: Tensor, grad_dqw: Tensor
+    ) -> Tuple[Tensor, Tensor]:
         # Straight-through estimator: pass gradients through.
         return grad_dqx, grad_dqw
 
@@ -117,9 +122,7 @@ def build_quantizer_class(
     if existing is not None:
         return existing
 
-    doc = (
-        f"Quantizer combining activation scheme '{act_name}' with weight scheme '{weight_name}'."
-    )
+    doc = f"Quantizer combining activation scheme '{act_name}' with weight scheme '{weight_name}'."
 
     def forward(  # type: ignore[override]
         ctx,

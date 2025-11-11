@@ -1,9 +1,9 @@
 """Unit tests for Quantizer classes."""
+
 from __future__ import annotations
 
 import pytest
 import torch
-
 
 
 @pytest.mark.unit
@@ -104,4 +104,3 @@ class TestConvQuantizerOutput:
 
         assert dqx.shape == sample_conv_activations.shape
         assert dqw.shape == sample_conv_weights.shape
-

@@ -1,11 +1,11 @@
 """Unit tests for weight quantization functions."""
+
 from __future__ import annotations
 
 import pytest
 import torch
 
 from .conftest import expected_linear_scale_shape
-
 
 
 @pytest.mark.unit
@@ -39,14 +39,20 @@ class TestWeightQuantizationOutput:
 class TestWeightQuantizationRange:
     """Unit tests for weight quantization value ranges."""
 
-    def test_quantized_values_in_range(self, linear_range_weight_quantizer, sample_linear_weights):
+    def test_quantized_values_in_range(
+        self, linear_range_weight_quantizer, sample_linear_weights
+    ):
         weight_quant_name, weight_quant_fn = linear_range_weight_quantizer
         w = sample_linear_weights
 
         _, quantized = weight_quant_fn(w)
 
-        assert (quantized >= -1).all(), f"Quantized values should be >= -1 for {weight_quant_name}"
-        assert (quantized <= 1).all(), f"Quantized values should be <= 1 for {weight_quant_name}"
+        assert (
+            quantized >= -1
+        ).all(), f"Quantized values should be >= -1 for {weight_quant_name}"
+        assert (
+            quantized <= 1
+        ).all(), f"Quantized values should be <= 1 for {weight_quant_name}"
 
 
 @pytest.mark.unit

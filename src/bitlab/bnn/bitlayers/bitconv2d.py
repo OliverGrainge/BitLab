@@ -1,16 +1,16 @@
 """Binary convolutional layer implementations built on BitLab quantization."""
 
+from typing import Tuple, Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Union, Tuple
 
-from bitlab.bnn import Module
 from bitlab.bitquantizer import BitQuantizer
 from bitlab.bnn.functional import bitconv2d
 
 
-class BitConv2d(Module):
+class BitConv2d(nn.Module):
     """Binary Conv2d that shares a quantization pipeline between training and deployment, supporting packed weight buffers."""
 
     def __init__(
@@ -24,7 +24,7 @@ class BitConv2d(Module):
         groups: int = 1,
         bias: bool = True,
         eps: float = 1e-6,
-        quant_type: str = "ai8pc_wpt"
+        quant_type: str = "ai8pc_wpt",
     ):
         """
         Construct a binary convolution layer with learnable parameters and quantizer.
@@ -45,16 +45,27 @@ class BitConv2d(Module):
 
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
+        self.kernel_size = (
+            kernel_size
+            if isinstance(kernel_size, tuple)
+            else (kernel_size, kernel_size)
+        )
         self.stride = stride if isinstance(stride, tuple) else (stride, stride)
         self.padding = padding if isinstance(padding, tuple) else (padding, padding)
-        self.dilation = dilation if isinstance(dilation, tuple) else (dilation, dilation)
+        self.dilation = (
+            dilation if isinstance(dilation, tuple) else (dilation, dilation)
+        )
         self.groups = groups
         self.eps = eps
         self.quant_type = quant_type
 
         self.weight = nn.Parameter(
-            torch.zeros(out_channels, in_channels // groups, self.kernel_size[0], self.kernel_size[1])
+            torch.zeros(
+                out_channels,
+                in_channels // groups,
+                self.kernel_size[0],
+                self.kernel_size[1],
+            )
         )
         self.bias = nn.Parameter(torch.zeros(out_channels)) if bias else None
 
@@ -63,7 +74,7 @@ class BitConv2d(Module):
 
     def _init_weights(self) -> None:
         """Use Kaiming init for weights and zeros for bias."""
-        nn.init.kaiming_uniform_(self.weight, a=0, mode='fan_in', nonlinearity='relu')
+        nn.init.kaiming_uniform_(self.weight, a=0, mode="fan_in", nonlinearity="relu")
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
@@ -97,4 +108,6 @@ class BitConv2d(Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply quantization-aware convolution suitable for training loops."""
         dqx, dqw = self.quantizer(x, self.weight)
-        return F.conv2d(dqx, dqw, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        return F.conv2d(
+            dqx, dqw, self.bias, self.stride, self.padding, self.dilation, self.groups
+        )

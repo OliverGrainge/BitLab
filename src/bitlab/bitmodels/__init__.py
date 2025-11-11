@@ -1,7 +1,7 @@
-from bitlab.bitmodels.unet import BitUNetModel, BitUNetConfig
-from bitlab.bitmodels.mlp import BitMLPModel, BitMLPConfig
-from bitlab.bitmodels.resnet import BitResNetModel, BitResNetConfig
 from bitlab.bitmodels.auto import BitAutoModel
+from bitlab.bitmodels.classification import (BitMLPConfig, BitMLPModel,
+                                             BitResNetConfig, BitResNetModel)
+from bitlab.bitmodels.diffusion import BitUNetConfig, BitUNetModel
 
 __all__ = [
     "BitUNetModel",

@@ -1,9 +1,8 @@
-from typing import Any
-from pathlib import Path
 import json
+from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
-
 
 CONFIG_REGISTRY: dict[str, type["BaseBitModelConfig"]] = {}
 
@@ -53,6 +52,3 @@ class BaseBitModelConfig(BaseModel):
             raise ValueError("Config missing required field 'model_type'.")
         config_cls = CONFIG_REGISTRY.get(model_type, cls)
         return config_cls.from_dict(data)
-
-
-

@@ -1,16 +1,16 @@
 """Binary linear layer implementations with shared quantization utilities."""
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional
 
-from bitlab.bnn import Module
 from bitlab.bitquantizer import BitQuantizer
 from bitlab.bnn.functional import bitlinear
 
 
-class BitLinear(Module):
+class BitLinear(nn.Module):
     """
     A binary neural network linear layer that quantizes weights to {-1, 0, 1}.
 
@@ -26,7 +26,12 @@ class BitLinear(Module):
     """
 
     def __init__(
-        self, in_features: int, out_features: int, bias: bool = True, eps: float = 1e-6, quant_type: str = "ai8pc_wpt"
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        eps: float = 1e-6,
+        quant_type: str = "ai8pc_wpt",
     ):
         """
         Initialize a binary linear layer with learnable parameters and a quantizer.
