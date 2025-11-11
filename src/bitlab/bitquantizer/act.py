@@ -51,43 +51,27 @@ def quantize_act_ai8pt(
     qx = (x / qxs).round().clamp(-127, 127)
     return qxs, qx
 
-
-def quantize_act_ai8ptk(
-    x: torch.Tensor, eps: float = 1e-5
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Quantize activations using ai8ptk (int8 per-token) scheme.
-    
-    Supports both 2D (batch, features) and 3D (batch, seq_length, hidden_dim) tensors.
-    Computes one scale per token (per row in 2D, per sequence position in 3D).
-
-    Args:
-        x: Activation tensor 
-           - 2D: [batch, features] for linear layers
-           - 3D: [batch, seq_length, hidden_dim] for transformers
-        eps: Minimum scale value to prevent division by zero
-        
-    Returns:
-        qxs: Scale tensor 
-             - 2D input: [batch, 1]
-             - 3D input: [batch, seq_length, 1]
-        qx: Quantized tensor with same shape as input
+@torch.compile
+def quantize_act_ai8ptk(x: torch.Tensor, eps: float = 1e-5) -> Tuple[torch.Tensor, torch.Tensor]:
     """
+    Returns: (inv_scale, qtensor)
+      - inv_scale: multiplier to apply to qtensor to reconstruct float (i.e. 1/scale_internal)
+      - qtensor: quantized values (kept in same dtype as input to avoid dtype surprises)
+    """
+    if x.ndim not in (2, 3):
+        raise ValueError(f"ai8ptk expects 2D or 3D tensor, got {x.ndim}D")
 
-    if x.ndim == 2:
-        # Linear layer: [batch, features]
-        qxs = x.abs().max(dim=-1, keepdim=True).values / 127.0
-    elif x.ndim == 3:
-        # Transformer: [batch, seq_length, hidden_dim]
-        qxs = x.abs().max(dim=-1, keepdim=True).values / 127.0
-    else:
-        raise ValueError(
-            f"ai8ptk expects 2D (linear) or 3D (transformer) tensor, got {x.ndim}D"
-        )
-    
-    qxs = qxs.clamp(min=eps)
-    qx = (x / qxs).round().clamp(-128, 127)
-    return qxs, qx
+    orig_dtype = x.dtype
+    x_float = x.float()
 
+    maxval = x_float.abs().amax(dim=-1, keepdim=True).clamp(min=eps)   # shape (...,1)
+    scale_internal = 127.0 / maxval                                    # what we multiply floats by to get ints
+    q = (x_float * scale_internal).round().clamp(-128, 127)            # integer-valued tensor (still float dtype)
+
+    inv_scale = 1.0 / scale_internal                                   # multiplier so: deq = inv_scale * q == q / scale_internal
+
+    # keep qtensor in same dtype as input to avoid dequantize casting surprises
+    return inv_scale.to(orig_dtype), q.to(orig_dtype)
 
 def quantize_act_ai8pc(
     x: torch.Tensor, eps: float = 1e-6

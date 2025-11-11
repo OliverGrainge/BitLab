@@ -5,14 +5,15 @@ from typing import Tuple
 import torch
 
 
-
+@torch.compile
 def quantize_weight_wpt(
     w: torch.Tensor, eps: float = 1e-5
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-    qws = w.abs().mean().clamp(min=eps)  # Global mean for all dims
-    qw = (w / qws).round().clamp(-1, 1)
-    return qws, qw
+    orig_dtype = w.dtype
+    w_fp32 = w.float()
+    qws = w_fp32.abs().mean().clamp_(min=1e-5)  # Global mean for all dims
+    qw = (w_fp32 / qws).round().clamp(-1, 1)
+    return qws.to(dtype=orig_dtype), qw.to(dtype=orig_dtype)
 
 
 def quantize_weight_wpc(

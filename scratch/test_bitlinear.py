@@ -1,35 +1,86 @@
-"""Binary linear layer implementations with shared quantization utilities."""
-
-from turtle import hideturtle
-from typing import Optional
-
+from curses import def_prog_mode
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from bitlab.bitquantizer import BitQuantizer
-from bitlab.bnn.functional import bitlinear
-from bitlab.bitquantizer import quantize_act, quantize_weight
 import bitlab.bnn as bnn
-
-"""Binary linear layer implementations with shared quantization utilities."""
-
-from typing import Optional
-
-"""Binary linear layer implementations with shared quantization utilities."""
-
-from typing import Optional
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
 from bitlab.bitquantizer import BitQuantizer
-from bitlab.bnn.functional import bitlinear
 
 
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-class AutoBitLinear(nn.Module):
+
+class WeightQuant(torch.autograd.Function):
+    """
+    Implements a custom autograd function for weight quantization.
+    This performs ternary quantization (-1, 0, 1) based on scaling by the
+    mean absolute value of the weights. It uses the Straight-Through Estimator
+    (STE) for the backward pass.
+    """
+
+    @staticmethod
+    @torch.compile
+    def forward(ctx, weight):
+        dtype = weight.dtype
+        weight = weight.float()
+        scale = 1.0 / weight.abs().mean().clamp_(min=1e-5)
+        weight = (weight * scale).round().clamp(-1, 1) / scale
+        return weight.to(dtype)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_input = grad_output.clone()
+        return grad_input
+
+
+class ActQuant(torch.autograd.Function):
+    """
+    Implements a custom autograd function for activation quantization.
+    This performs symmetric 8-bit quantization (to the range [-128, 127])
+    based on the maximum absolute value along the last dimension (per-token/row scaling).
+    It uses the Straight-Through Estimator (STE) for the backward pass.
+    """
+
+    @staticmethod
+    @torch.compile
+    def forward(ctx, activation):
+        dtype = activation.dtype
+        activation = activation.float()
+        scale = 127 / activation.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
+        activation = (activation * scale).round().clamp(-128, 127) / scale
+        return activation.to(dtype)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_input = grad_output.clone()
+        return grad_input
+
+
+class AutoBitLinear(nn.Linear):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+        online_quant: bool = True,
+        use_rms_norm: bool = False,
+        rms_norm_eps: float = 1e-6,
+    ):
+        super().__init__(in_features, out_features, bias)
+        self.online_quant = online_quant
+        # Optional RMSNorm
+        self.rms_norm = None
+
+
+    def forward(self, input):
+        weight = WeightQuant.apply(self.weight)
+        input = ActQuant.apply(input)
+        output = F.linear(input, weight, self.bias)
+        return output
+
+
+class BitLinear(nn.Module):
     """
     A binary neural network linear layer that quantizes weights to {-1, 0, 1}.
 
@@ -83,84 +134,66 @@ class AutoBitLinear(nn.Module):
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
-    def _deploy(self) -> None:
-        """
-        Deploy the layer for efficient inference by:
-        1. Quantizing and packing weights
-        2. Removing original parameters
-        3. Switching to optimized forward pass
-        """
-        # Quantize and pack weights for deployment
-        qs, qw = bitlinear.prepare_weights(self.weight, self.eps, self.quant_type)
-        bias_data = self.bias.detach().clone() if self.bias is not None else None
-        del self.bias, self.weight
-
-        # Replace parameters with quantized buffers
-        self.register_buffer("qws", qs)
-        self.register_buffer("qw", qw)
-        self.register_buffer("bias", bias_data)
-
-        # Switch to optimized forward pass
-        self.forward = self._deploy_forward
-
-    def weight_quant(self, weight: torch.Tensor) -> torch.Tensor:
-        dtype = weight.dtype
-        weight = weight.float()
-        scale = 1.0 / weight.abs().mean().clamp_(min=1e-5)
-        weight = (weight * scale).round().clamp(-1, 1) / scale
-        return weight.to(dtype)
-
-    def act_quant(self, activation: torch.Tensor) -> torch.Tensor:
-        dtype = activation.dtype
-        activation = activation.float()
-        scale = 127 / activation.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
-        activation = (activation * scale).round().clamp(-128, 127) / scale
-        return activation.to(dtype)
-
-    def _deploy_forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Run the quantized inference pathway after `deploy` has packed the weights."""
-        return bitlinear(x, self.qws, self.qw, self.bias, self.eps, self.quant_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply quantization-aware linear transformation suitable for training."""
-        weight = self.weight_quant(self.weight)
-        x = self.act_quant(x)
-        output = F.linear(x, weight, self.bias)
-        return output
+        dqx, dqw = self.quantizer(x, self.weight)
+        return F.linear(dqx, dqw, self.bias)
 
-    def __repr__(self) -> str:
-        return f"MyBitLinear(in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}, eps={self.eps}, quant_type={self.quant_type})"
-
-
+    def __repr__(self): 
+        return "BBitLinear"
 
 
 
 if __name__ == "__main__": 
-    seq_len = 1204 
-    hidden_size = 2048
-    x = torch.randn(12, seq_len, hidden_size) 
-    linear = nn.Sequential(nn.Linear(hidden_size, hidden_size, bias=False), nn.Linear(hidden_size, hidden_size, bias=False))
-    linear_sd = linear.state_dict()
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    hf_model = AutoModelForCausalLM.from_pretrained("microsoft/bitnet-b1.58-2B-4T-bf16")
+    model_autobitlinear = hf_model.model.layers[0].self_attn.q_proj 
+    in_features = model_autobitlinear.in_features
+    out_features = model_autobitlinear.out_features
+    bias = model_autobitlinear.bias is not None
+    model_autobitlinear.float()
     
-    # Create AutoBitLinear for fair comparison
-    target = nn.Sequential(
-        bnn.BitLinear(hidden_size, hidden_size, bias=False, quant_type="ai8ptk_wpt", eps=1e-5),
-        bnn.BitLinear(hidden_size, hidden_size, bias=False, quant_type="ai8ptk_wpt", eps=1e-5),
-    )
-    reference = nn.Sequential(
-        AutoBitLinear(hidden_size, hidden_size, bias=False), 
-        AutoBitLinear(hidden_size, hidden_size, bias=False)
-    )
-
-    print(reference)
-    print(target)
-
-    target.load_state_dict(linear_sd)
-    reference.load_state_dict(linear_sd)
-    target.eval()
-    reference.eval()
+    autobitlinear = AutoBitLinear(in_features, out_features, bias)
+    autobitlinear.load_state_dict(model_autobitlinear.state_dict())
+    autobitlinear.eval()
+    autobitlinear.float()
     
-    y_hat = target(x)
-    y = reference(x)
-    print("y_hat", y_hat.shape, "y", y.shape)
-    print("Difference:", torch.max(torch.abs(y_hat - y)))
+    bitlinear = bnn.BitLinear(in_features, out_features, bias, eps=1e-5, quant_type="ai8ptk_wpt")
+    bitlinear.float()
+    bitlinear.load_state_dict(autobitlinear.state_dict())
+    bitlinear.eval() 
+    autobitlinear.eval()
+    
+    # Test input
+    x = torch.randn(1, 100, in_features)
+    
+    # Check if weights are identical
+    print("Weight difference:", torch.max(torch.abs(bitlinear.weight - autobitlinear.weight)))
+    
+    # Check quantized weights
+    
+    with torch.no_grad():
+        auto_qw = WeightQuant.apply(autobitlinear.weight)
+        bit_qa, bit_qw = bitlinear.quantizer(x, bitlinear.weight)
+        print("Quantized weight difference:", torch.max(torch.abs(auto_qw - bit_qw)))
+        
+        # Check quantized activations
+        auto_qa = ActQuant.apply(x)
+        print("Quantized activation difference:", torch.max(torch.abs(auto_qa - bit_qa)))
+        
+        # Check linear operation
+        auto_out_manual = F.linear(auto_qa, auto_qw, autobitlinear.bias)
+        bit_out_manual = F.linear(bit_qa, bit_qw, bitlinear.bias)
+        print("Manual linear difference:", torch.max(torch.abs(auto_out_manual - bit_out_manual)))
+    
+    # Full forward pass
+    y_auto = autobitlinear(x)
+    y_bit = bitlinear(x)
+    
+    print("\nFinal output difference:")
+    print("Max:", torch.max(torch.abs(y_bit - y_auto)))
+    print("Mean:", torch.mean(torch.abs(y_bit - y_auto)))
+    print("Relative error:", torch.max(torch.abs(y_bit - y_auto)) / torch.max(torch.abs(y_auto)))
+
+
