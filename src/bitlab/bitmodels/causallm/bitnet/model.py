@@ -36,7 +36,9 @@ class RMSNorm(nn.Module):
         return self.weight * hidden_states.to(dtype=input_dtype)
 
     def __repr__(self):
-        return f"RMSNorm(hidden_size={self.weight.shape[0]}, eps={self.variance_epsilon})"
+        return (
+            f"RMSNorm(hidden_size={self.weight.shape[0]}, eps={self.variance_epsilon})"
+        )
 
 
 class BitNetFeedForward(nn.Module):
@@ -140,7 +142,9 @@ class RotaryEmbedding(nn.Module):
         value: torch.Tensor,
         position_ids: torch.LongTensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        inv_freq = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        inv_freq = (
+            self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        )
         pos_ids = position_ids[:, None, :].float()
 
         device_type = value.device.type if value.device.type != "mps" else "cpu"
@@ -206,9 +210,15 @@ class BitNetAttention(nn.Module):
         key = self.k_proj(hidden_states)
         value = self.v_proj(hidden_states)
 
-        query = query.view(batch_size, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
-        key = key.view(batch_size, seq_length, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        value = value.view(batch_size, seq_length, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        query = query.view(
+            batch_size, seq_length, self.num_heads, self.head_dim
+        ).transpose(1, 2)
+        key = key.view(
+            batch_size, seq_length, self.num_key_value_heads, self.head_dim
+        ).transpose(1, 2)
+        value = value.view(
+            batch_size, seq_length, self.num_key_value_heads, self.head_dim
+        ).transpose(1, 2)
 
         cos, sin = position_embeddings
         query, key = apply_rotary_pos_emb(query, key, cos, sin)
@@ -227,10 +237,14 @@ class BitNetAttention(nn.Module):
         if attention_mask is not None:
             attn_weights = attn_weights + attention_mask
 
-        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
+        attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+            query.dtype
+        )
         attn_output = torch.matmul(attn_weights, value)
 
-        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_length, -1)
+        attn_output = (
+            attn_output.transpose(1, 2).contiguous().view(batch_size, seq_length, -1)
+        )
         attn_output = self.attn_sub_norm(attn_output)
         attn_output = self.o_proj(attn_output)
 
@@ -246,7 +260,9 @@ class BitNetDecoderLayer(nn.Module):
         self.self_attn = BitNetAttention(config)
         self.mlp = BitNetFeedForward(config)
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = RMSNorm(
+            config.hidden_size, eps=config.rms_norm_eps
+        )
 
     def forward(
         self,
@@ -286,9 +302,12 @@ class BitNetDecoder(nn.Module):
         self.vocab_size = config.vocab_size
         self.head_dim = _resolve_head_dim(config)
 
-        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+        self.embed_tokens = nn.Embedding(
+            config.vocab_size, config.hidden_size, self.padding_idx
+        )
         self.layers = nn.ModuleList(
-            BitNetDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)
+            BitNetDecoderLayer(config, layer_idx)
+            for layer_idx in range(config.num_hidden_layers)
         )
         self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = RotaryEmbedding(
@@ -312,12 +331,16 @@ class BitNetDecoder(nn.Module):
             past_length = past_key_values[0][0].shape[2]
 
         if position_ids is None:
-            position_ids = torch.arange(
-                past_length,
-                seq_length + past_length,
-                dtype=torch.long,
-                device=input_ids.device,
-            ).unsqueeze(0).expand(batch_size, -1)
+            position_ids = (
+                torch.arange(
+                    past_length,
+                    seq_length + past_length,
+                    dtype=torch.long,
+                    device=input_ids.device,
+                )
+                .unsqueeze(0)
+                .expand(batch_size, -1)
+            )
 
         hidden_states = self.embed_tokens(input_ids)
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
@@ -330,15 +353,19 @@ class BitNetDecoder(nn.Module):
                     device=hidden_states.device,
                 )
                 if seq_length > 1:
-                    causal_mask[:, :, :, past_length:] = torch.triu(
-                        torch.full(
-                            (seq_length, seq_length),
-                            float("-inf"),
-                            dtype=hidden_states.dtype,
-                            device=hidden_states.device,
-                        ),
-                        diagonal=1,
-                    ).unsqueeze(0).unsqueeze(0)
+                    causal_mask[:, :, :, past_length:] = (
+                        torch.triu(
+                            torch.full(
+                                (seq_length, seq_length),
+                                float("-inf"),
+                                dtype=hidden_states.dtype,
+                                device=hidden_states.device,
+                            ),
+                            diagonal=1,
+                        )
+                        .unsqueeze(0)
+                        .unsqueeze(0)
+                    )
             else:
                 causal_mask = torch.triu(
                     torch.full(
@@ -349,13 +376,21 @@ class BitNetDecoder(nn.Module):
                     ),
                     diagonal=1,
                 )
-                causal_mask = causal_mask.unsqueeze(0).unsqueeze(0).expand(batch_size, 1, seq_length, seq_length)
+                causal_mask = (
+                    causal_mask.unsqueeze(0)
+                    .unsqueeze(0)
+                    .expand(batch_size, 1, seq_length, seq_length)
+                )
         else:
             causal_mask = attention_mask
 
-        present_key_values: Optional[list[tuple[torch.Tensor, torch.Tensor]]] = [] if use_cache else None
+        present_key_values: Optional[list[tuple[torch.Tensor, torch.Tensor]]] = (
+            [] if use_cache else None
+        )
         for layer_idx, decoder_layer in enumerate(self.layers):
-            layer_past = past_key_values[layer_idx] if past_key_values is not None else None
+            layer_past = (
+                past_key_values[layer_idx] if past_key_values is not None else None
+            )
             hidden_states, layer_present = decoder_layer(
                 hidden_states,
                 position_embeddings,
@@ -408,7 +443,9 @@ class BitNetLM(nn.Module):
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, self.vocab_size), shift_labels.view(-1))
+            loss = loss_fct(
+                shift_logits.view(-1, self.vocab_size), shift_labels.view(-1)
+            )
 
         return {
             "loss": loss,
@@ -416,55 +453,6 @@ class BitNetLM(nn.Module):
             "hidden_states": hidden_states,
             "past_key_values": present_key_values,
         }
-
-    @torch.no_grad()
-    def generate(
-        self,
-        input_ids: torch.LongTensor,
-        *,
-        max_length: int = 100,
-        temperature: float = 1.0,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
-        do_sample: bool = True,
-        use_cache: bool = True,
-    ) -> torch.LongTensor:
-        batch_size = input_ids.shape[0]
-        generated = input_ids.clone()
-        past_key_values: Optional[list[tuple[torch.Tensor, torch.Tensor]]] = None
-
-        for step in range(max_length - input_ids.shape[1]):
-            model_inputs = generated if step == 0 else next_token
-            outputs = self.forward(model_inputs, past_key_values=past_key_values, use_cache=use_cache)
-            if use_cache:
-                past_key_values = outputs["past_key_values"]
-
-            logits = outputs["logits"][:, -1, :] / temperature
-
-            if top_k is not None:
-                kth_values = torch.topk(logits, top_k)[0][..., -1, None]
-                logits = logits.masked_fill(logits < kth_values, float("-inf"))
-
-            if top_p is not None:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-                sorted_indices_to_remove = cumulative_probs > top_p
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1]
-                sorted_indices_to_remove[..., 0] = False
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                logits = logits.masked_fill(indices_to_remove, float("-inf"))
-
-            if do_sample:
-                probs = F.softmax(logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)
-            else:
-                next_token = torch.argmax(logits, dim=-1, keepdim=True)
-
-            generated = torch.cat([generated, next_token], dim=1)
-            if (next_token == self.config.eos_token_id).all():
-                break
-
-        return generated
 
 
 @register_bitmodel("bitnet")
@@ -498,7 +486,6 @@ class BitNetForCausalLM(CausalLMMixin, BaseBitModel):
             labels=labels,
             use_cache=use_cache,
         )
-
 
     @classmethod
     def _load_weights(

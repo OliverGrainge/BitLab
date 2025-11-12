@@ -121,7 +121,6 @@ class BaseBitModel(nn.Module):
     def _has_custom_build(self) -> bool:
         return type(self).build_model is not BaseBitModel.build_model
 
-
     @classmethod
     def _load_weights(
         cls,

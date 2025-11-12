@@ -29,8 +29,10 @@ class CausalLMMixin:
         """Greedy or sampling-based continuation for causal LMs."""
 
         self.eval()
-        eos_token_id = eos_token_id if eos_token_id is not None else getattr(
-            self.config, "eos_token_id", None
+        eos_token_id = (
+            eos_token_id
+            if eos_token_id is not None
+            else getattr(self.config, "eos_token_id", None)
         )
 
         generated = input_ids
@@ -38,7 +40,9 @@ class CausalLMMixin:
         cur_len = input_ids.shape[1]
 
         for _ in range(max_length - cur_len):
-            model_inputs = self.prepare_inputs_for_generation(generated, past_key_values=past_key_values)
+            model_inputs = self.prepare_inputs_for_generation(
+                generated, past_key_values=past_key_values
+            )
             outputs = self.forward(**model_inputs, use_cache=use_cache)
 
             if use_cache:
@@ -47,16 +51,22 @@ class CausalLMMixin:
             logits = outputs["logits"][:, -1, :] / max(temperature, 1e-5)
 
             if top_k is not None and top_k > 0:
-                kth_values = torch.topk(logits, min(top_k, logits.size(-1)))[0][..., -1, None]
+                kth_values = torch.topk(logits, min(top_k, logits.size(-1)))[0][
+                    ..., -1, None
+                ]
                 logits = logits.masked_fill(logits < kth_values, float("-inf"))
 
             if top_p is not None and 0 < top_p < 1:
                 sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                cumulative_probs = torch.cumsum(
+                    F.softmax(sorted_logits, dim=-1), dim=-1
+                )
                 sorted_indices_to_remove = cumulative_probs > top_p
                 sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1]
                 sorted_indices_to_remove[..., 0] = False
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                indices_to_remove = sorted_indices_to_remove.scatter(
+                    1, sorted_indices, sorted_indices_to_remove
+                )
                 logits = logits.masked_fill(indices_to_remove, float("-inf"))
 
             if do_sample:
@@ -82,8 +92,6 @@ class CausalLMMixin:
         return {"input_ids": input_ids[:, -1:], "past_key_values": past_key_values}
 
 
-
-
 class ImageClassificationMixin:
     """Utility helpers for image classification models."""
 
@@ -94,8 +102,8 @@ class ImageClassificationMixin:
         self,
         inputs: torch.Tensor,
         *,
-        return_logits: bool = False,
-        return_probabilities: bool = False,
+        return_logits: bool = True,
+        return_probabilities: bool = True,
     ) -> dict[str, torch.Tensor]:
         self.eval()
         logits = self.forward(inputs)
@@ -108,8 +116,6 @@ class ImageClassificationMixin:
         if return_probabilities:
             result["probabilities"] = probs
         return result
-
-
 
 
 class ImageGenerationMixin:
@@ -140,5 +146,3 @@ class ImageGenerationMixin:
             model_output = self.forward(model_input, t)
             sample = scheduler.step(model_output, t, sample)
         return scheduler.finalize(sample)
-
-

@@ -35,13 +35,13 @@ def quantize_act_ai8pt(
     x: torch.Tensor, eps: float = 1e-6
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Quantize activations using ai8pt (int8 per-tensor) scheme.
-    
+
     Single scale factor for entire tensor.
 
     Args:
         x: Activation tensor of any shape
         eps: Minimum scale value to prevent division by zero
-        
+
     Returns:
         inv_scale: Inverse scale tensor (scalar)
         qx: Quantized tensor with same shape as input
@@ -53,7 +53,9 @@ def quantize_act_ai8pt(
     return inv_scale, qx
 
 
-def quantize_act_ai8ptk(x: torch.Tensor, eps: float = 1e-5) -> Tuple[torch.Tensor, torch.Tensor]:
+def quantize_act_ai8ptk(
+    x: torch.Tensor, eps: float = 1e-5
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Returns: (inv_scale, qtensor)
       - inv_scale: multiplier applied to activations before rounding (i.e. 1/scale)
@@ -65,12 +67,15 @@ def quantize_act_ai8ptk(x: torch.Tensor, eps: float = 1e-5) -> Tuple[torch.Tenso
     orig_dtype = x.dtype
     x_float = x.float()
 
-    maxval = x_float.abs().amax(dim=-1, keepdim=True).clamp(min=eps)   # shape (...,1)
-    inv_scale = 127.0 / maxval                                         # multiplier applied before rounding
-    q = (x_float * inv_scale).round().clamp(-128, 127)                 # integer-valued tensor (still float dtype)
+    maxval = x_float.abs().amax(dim=-1, keepdim=True).clamp(min=eps)  # shape (...,1)
+    inv_scale = 127.0 / maxval  # multiplier applied before rounding
+    q = (
+        (x_float * inv_scale).round().clamp(-128, 127)
+    )  # integer-valued tensor (still float dtype)
 
     # keep qtensor in same dtype as input to avoid dequantize casting surprises
     return inv_scale.to(orig_dtype), q.to(orig_dtype)
+
 
 def quantize_act_ai8pc(
     x: torch.Tensor, eps: float = 1e-6
@@ -80,7 +85,7 @@ def quantize_act_ai8pc(
     Args:
         x: Activation tensor [batch, channels, height, width]
         eps: Minimum scale value to prevent division by zero
-        
+
     Returns:
         inv_scale: Inverse scale tensor [batch, channels, 1, 1]
         qx: Quantized tensor [batch, channels, height, width]

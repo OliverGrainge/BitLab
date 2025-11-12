@@ -5,8 +5,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import ClassVar, Optional, Type
 
-from bitlab.bitmodels.config import BaseBitModelConfig
 from bitlab.bitmodels.base import BaseBitModel
+from bitlab.bitmodels.config import BaseBitModelConfig
 from bitlab.bitmodels.tasks import ModelTask
 
 # Minimal registry for models
@@ -23,7 +23,11 @@ def register_bitmodel(model_type: str, *, task: ModelTask | str | None = None):
 
         resolved_task = task or getattr(cls, "task", None)
         if resolved_task is not None:
-            task_key = resolved_task.value if isinstance(resolved_task, ModelTask) else str(resolved_task)
+            task_key = (
+                resolved_task.value
+                if isinstance(resolved_task, ModelTask)
+                else str(resolved_task)
+            )
             TASK_REGISTRY[task_key][model_type] = cls
             TASK_REGISTRY[task_key][model_type.lower()] = cls
         return cls
@@ -64,16 +68,28 @@ class BitAutoModel:
         if model_type:
             candidates = (
                 MODEL_REGISTRY.get(model_type),
-                MODEL_REGISTRY.get(model_type.lower()) if isinstance(model_type, str) else None,
+                (
+                    MODEL_REGISTRY.get(model_type.lower())
+                    if isinstance(model_type, str)
+                    else None
+                ),
             )
             for candidate in candidates:
                 if candidate is not None:
                     if cls.task is not None:
-                        task_key = cls.task.value if isinstance(cls.task, ModelTask) else str(cls.task)
+                        task_key = (
+                            cls.task.value
+                            if isinstance(cls.task, ModelTask)
+                            else str(cls.task)
+                        )
                         registered_task = getattr(candidate, "task", None)
                         if registered_task is None:
                             registered_task = next(
-                                (key for key, registry in TASK_REGISTRY.items() if candidate in registry.values()),
+                                (
+                                    key
+                                    for key, registry in TASK_REGISTRY.items()
+                                    if candidate in registry.values()
+                                ),
                                 None,
                             )
                         if registered_task is not None:
@@ -95,7 +111,9 @@ class BitAutoModel:
             )
 
         if cls.task is None:
-            raise ValueError("model_type must be provided for BitAutoModel without a predefined task.")
+            raise ValueError(
+                "model_type must be provided for BitAutoModel without a predefined task."
+            )
 
         task_key = cls.task.value if isinstance(cls.task, ModelTask) else str(cls.task)
         task_registry = TASK_REGISTRY.get(task_key, {})

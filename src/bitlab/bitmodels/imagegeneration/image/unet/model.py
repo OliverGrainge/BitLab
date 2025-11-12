@@ -468,5 +468,3 @@ class BitUNetModel(ImageGenerationMixin, BaseBitModel):
             use_scale_shift_norm=config.use_scale_shift_norm,
             quant_type=config.quant_type,
         )
-
-

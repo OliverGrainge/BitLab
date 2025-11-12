@@ -9,5 +9,3 @@ class ModelTask(str, Enum):
     CAUSAL_LM = "causal-lm"
     IMAGE_CLASSIFICATION = "image-classification"
     IMAGE_GENERATION = "image-generation"
-
-

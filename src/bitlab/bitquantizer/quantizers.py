@@ -15,16 +15,16 @@ __all__ = ["QuantizerFunction", "NoQuantizer", "dequantize", "build_quantizer_cl
 
 def dequantize(inv_scale: Tensor, qtensor: Tensor) -> Tensor:
     """Expand inverse scale as needed and reconstruct the floating-point tensor.
-    
+
     Supports various quantization schemes:
     - Per-tensor (scalar inverse scale)
     - Per-token/channel (inverse scale with keepdim=True dimensions)
     - Per-group (inverse scale smaller than qtensor in last dimension)
-    
+
     Args:
         inv_scale: Inverse scale tensor from quantization
         qtensor: Quantized tensor
-        
+
     Returns:
         Dequantized tensor with same shape as qtensor
     """
@@ -49,15 +49,27 @@ def dequantize(inv_scale: Tensor, qtensor: Tensor) -> Tensor:
         pass
 
     # Per-group quantization (e.g. wpg) where inverse scale < qtensor along last dimension
-    if inv_scale.ndim == 2 and qtensor.ndim == 2 and inv_scale.shape[1] < qtensor.shape[1]:
+    if (
+        inv_scale.ndim == 2
+        and qtensor.ndim == 2
+        and inv_scale.shape[1] < qtensor.shape[1]
+    ):
         group_size = math.ceil(qtensor.shape[1] / inv_scale.shape[1])
-        expanded = inv_scale.repeat_interleave(group_size, dim=1)[..., : qtensor.shape[1]]
+        expanded = inv_scale.repeat_interleave(group_size, dim=1)[
+            ..., : qtensor.shape[1]
+        ]
         return qtensor / expanded
-    
+
     # 3D per-group case: [batch, seq_length, num_groups] -> [batch, seq_length, hidden_dim]
-    if inv_scale.ndim == 3 and qtensor.ndim == 3 and inv_scale.shape[2] < qtensor.shape[2]:
+    if (
+        inv_scale.ndim == 3
+        and qtensor.ndim == 3
+        and inv_scale.shape[2] < qtensor.shape[2]
+    ):
         group_size = math.ceil(qtensor.shape[2] / inv_scale.shape[2])
-        expanded = inv_scale.repeat_interleave(group_size, dim=2)[..., : qtensor.shape[2]]
+        expanded = inv_scale.repeat_interleave(group_size, dim=2)[
+            ..., : qtensor.shape[2]
+        ]
         return qtensor / expanded
 
     raise RuntimeError(
