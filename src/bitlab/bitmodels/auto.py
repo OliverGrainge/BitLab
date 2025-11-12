@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional, Type
+from typing import Optional, Type
 
 from bitlab.bitmodels.config import BaseBitModelConfig
 from bitlab.bitmodels.base import BaseBitModel
@@ -65,13 +65,24 @@ class BitAutoModel:
     @classmethod
     def from_pretrained(
         cls,
-        model_type: str,
+        name: str,
         *,
-        weights: Optional[str] = None,
         eval_mode: bool = True,
-        **load_kwargs: Any,
     ) -> BaseBitModel:
-        """Instantiate a registered model and load pretrained weights."""
+        """
+        Instantiate a registered model and load pretrained weights.
+
+        The `name` can be either a bare model type (e.g. `"bitnet"`) or a
+        composite string of the form `"bitnet:base"` where the part after the
+        colon selects a specific weight alias exposed by the model.
+        """
+
+        alias: Optional[str] = None
+        if ":" in name:
+            model_type, alias = name.split(":", 1)
+            alias = alias or None
+        else:
+            model_type = name
 
         model_cls = cls._resolve_model_cls(model_type)
         loader = getattr(model_cls, "_load_weights", None)
@@ -80,10 +91,10 @@ class BitAutoModel:
                 f"{model_cls.__name__} does not expose a callable `_load_weights` loader."
             )
 
-        if weights is not None and "weights" not in load_kwargs:
-            load_kwargs["weights"] = weights
-
-        model = loader(**load_kwargs)
+        if alias is not None:
+            model = loader(alias)
+        else:
+            model = loader()
         if not isinstance(model, BaseBitModel):
             raise TypeError(
                 f"Expected `_load_weights` of {model_cls.__name__} to return a BaseBitModel, "
