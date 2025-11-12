@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.base import BaseBitModel
-from bitlab.bitmodels.imagegeneration.image.unet.config import BitUNetConfig
+from bitlab.bitmodels.imagegeneration.unet.config import BitUNetConfig
 from bitlab.bitmodels.mixins import ImageGenerationMixin
 
 
@@ -264,71 +264,66 @@ class BitUNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int,
-        out_channels: int,
-        model_channels: int,
-        num_res_blocks: int,
-        attention_resolutions: Tuple[int, ...],
-        dropout: float,
-        channel_mult: Tuple[int, ...],
-        num_heads: int,
-        time_emb_dim: int,
-        use_scale_shift_norm: bool,
-        quant_type: str = "ai8pc_wpt",
+        config, 
     ):
         super().__init__()
 
-        self.in_channels = in_channels
-        self.model_channels = model_channels
-        self.num_res_blocks = num_res_blocks
-        self.attention_resolutions = attention_resolutions
-        self.channel_mult = channel_mult
-        self.quant_type = quant_type
+        self.in_channels = config.in_channels
+        self.model_channels = config.model_channels
+        self.num_res_blocks = config.num_res_blocks
+        self.attention_resolutions = config.attention_resolutions
+        self.channel_mult = config.channel_mult
+        self.out_channels = config.out_channels
+        self.quant_type = config.quant_type
+        self.dropout = config.dropout 
+        self.num_heads = config.num_heads
+        self.time_emb_dim = config.model_channels * 4
+        self.use_scale_shift_norm = config.use_scale_shift_norm
 
         # Time embedding (keep as regular layers)
         self.time_embed = nn.Sequential(
-            SinusoidalPositionEmbedding(model_channels),
-            nn.Linear(model_channels, time_emb_dim),
+            SinusoidalPositionEmbedding(self.model_channels),
+            nn.Linear(self.model_channels, self.time_emb_dim),
             nn.SiLU(),
-            nn.Linear(time_emb_dim, time_emb_dim),
+            nn.Linear(self.time_emb_dim, self.time_emb_dim),
         )
 
         # Initial quantized convolution
         self.conv_in = BitConvBlock(
-            in_channels, model_channels, 3, padding=1, quant_type=quant_type
+            self.in_channels, self.model_channels, 3, padding=1, quant_type=self.quant_type
         )
 
         # Downsampling path
         self.down_blocks = nn.ModuleList()
-        ch = model_channels
+        ch = self.model_channels
         input_block_chans = [ch]
         ds = 1
 
-        for level, mult in enumerate(channel_mult):
-            for _ in range(num_res_blocks):
+        for level, mult in enumerate(self.channel_mult):
+            for _ in range(self.num_res_blocks):
                 layers = [
                     BitResidualBlock(
                         ch,
-                        mult * model_channels,
-                        time_emb_dim,
-                        dropout,
-                        use_scale_shift_norm,
-                        quant_type=quant_type,
+                        mult * self.model_channels,
+                        self.time_emb_dim,
+                        self.dropout,
+                        self.use_scale_shift_norm,
+                        quant_type=self.quant_type,
                     )
                 ]
-                ch = mult * model_channels
+                ch = mult * self.model_channels
 
-                if ds in attention_resolutions:
+                if ds in self.attention_resolutions:
                     layers.append(
-                        BitAttentionBlock(ch, num_heads, quant_type=quant_type)
+                        BitAttentionBlock(ch, self.num_heads, quant_type=self.quant_type)
                     )
 
                 self.down_blocks.append(nn.ModuleList(layers))
                 input_block_chans.append(ch)
 
-            if level != len(channel_mult) - 1:
+            if level != len(self.channel_mult) - 1:
                 self.down_blocks.append(
-                    nn.ModuleList([BitDownsampleBlock(ch, quant_type=quant_type)])
+                    nn.ModuleList([BitDownsampleBlock(ch, quant_type=self.quant_type)])
                 )
                 input_block_chans.append(ch)
                 ds *= 2
@@ -339,47 +334,47 @@ class BitUNet(nn.Module):
                 BitResidualBlock(
                     ch,
                     ch,
-                    time_emb_dim,
-                    dropout,
-                    use_scale_shift_norm,
-                    quant_type=quant_type,
+                    self.time_emb_dim,
+                    self.dropout,
+                    self.use_scale_shift_norm,
+                    quant_type=self.quant_type,
                 ),
-                BitAttentionBlock(ch, num_heads, quant_type=quant_type),
+                BitAttentionBlock(ch, self.num_heads, quant_type=self.quant_type),
                 BitResidualBlock(
                     ch,
                     ch,
-                    time_emb_dim,
-                    dropout,
-                    use_scale_shift_norm,
-                    quant_type=quant_type,
+                    self.time_emb_dim,
+                    self.dropout,
+                    self.use_scale_shift_norm,
+                    quant_type=self.quant_type,
                 ),
             ]
         )
 
         # Upsampling path
         self.up_blocks = nn.ModuleList()
-        for level, mult in enumerate(reversed(channel_mult)):
-            for i in range(num_res_blocks + 1):
+        for level, mult in enumerate(reversed(self.channel_mult)):
+            for i in range(self.num_res_blocks + 1):
                 ich = input_block_chans.pop()
                 layers = [
                     BitResidualBlock(
                         ch + ich,
-                        model_channels * mult,
-                        time_emb_dim,
-                        dropout,
-                        use_scale_shift_norm,
-                        quant_type=quant_type,
+                        self.model_channels * mult,
+                        self.time_emb_dim,
+                        self.dropout,
+                        self.use_scale_shift_norm,
+                        quant_type=self.quant_type,
                     )
                 ]
-                ch = model_channels * mult
+                ch = self.model_channels * mult
 
-                if ds in attention_resolutions:
+                if ds in self.attention_resolutions:
                     layers.append(
-                        BitAttentionBlock(ch, num_heads, quant_type=quant_type)
+                        BitAttentionBlock(ch, self.num_heads, quant_type=self.quant_type)
                     )
 
-                if level != len(channel_mult) - 1 and i == num_res_blocks:
-                    layers.append(BitUpsampleBlock(ch, quant_type=quant_type))
+                if level != len(self.channel_mult) - 1 and i == self.num_res_blocks:
+                    layers.append(BitUpsampleBlock(ch, quant_type=self.quant_type))
                     ds //= 2
 
                 self.up_blocks.append(nn.ModuleList(layers))
@@ -388,7 +383,7 @@ class BitUNet(nn.Module):
         self.out = nn.Sequential(
             nn.GroupNorm(32, ch),
             nn.SiLU(),
-            BitConvBlock(ch, out_channels, 3, padding=1, quant_type=quant_type),
+            BitConvBlock(ch, self.out_channels, 3, padding=1, quant_type=self.quant_type),
         )
 
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
@@ -454,17 +449,4 @@ class BitUNetModel(ImageGenerationMixin, BaseBitModel):
         return self.model(x, timesteps)
 
     def build_model(self, config: BitUNetConfig) -> nn.Module:
-        time_emb_dim = config.model_channels * 4
-        return BitUNet(
-            in_channels=config.in_channels,
-            out_channels=config.out_channels,
-            model_channels=config.model_channels,
-            num_res_blocks=config.num_res_blocks,
-            attention_resolutions=config.attention_resolutions,
-            dropout=config.dropout,
-            channel_mult=config.channel_mult,
-            num_heads=config.num_heads,
-            time_emb_dim=time_emb_dim,
-            use_scale_shift_norm=config.use_scale_shift_norm,
-            quant_type=config.quant_type,
-        )
+        return BitUNet(config)

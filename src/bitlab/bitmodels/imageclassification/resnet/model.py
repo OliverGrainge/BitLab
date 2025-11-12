@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.base import BaseBitModel
-from bitlab.bitmodels.imageclassification.image.resnet.config import \
+from bitlab.bitmodels.imageclassification.resnet.config import \
     BitResNetConfig
 from bitlab.bitmodels.mixins import ImageClassificationMixin
 from bitlab.bnn.bitlayers import BitConv2d
@@ -64,20 +64,26 @@ class BitResNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int,
-        num_classes: int,
-        base_channels: int,
-        block_layers: Sequence[int],
-        quant_type: Optional[str] = None,
+        config, 
     ) -> None:
         super().__init__()
+        self.in_channels = config.in_channels
+        self.num_classes = config.num_classes
+        self.base_channels = config.base_channels
+        self.block_layers = config.block_layers
+        self.quant_type = config.quant_type
 
-        use_bitconv = quant_type is not None
+        use_bitconv = self.quant_type is not None
 
         if use_bitconv:
-            conv_factory = partial(BitConv2d, quant_type=quant_type)
+            conv_factory = partial(BitConv2d, quant_type=self.quant_type)
         else:
             conv_factory = nn.Conv2d
+
+        in_channels = self.in_channels
+        base_channels = self.base_channels
+        num_classes = self.num_classes
+        block_layers = self.block_layers
 
         def make_conv(
             in_planes: int,
@@ -147,10 +153,4 @@ class BitResNetModel(ImageClassificationMixin, BaseBitModel):
         super().__init__(config=config, **overrides)
 
     def build_model(self, config: BitResNetConfig) -> nn.Module:
-        return BitResNet(
-            in_channels=config.in_channels,
-            num_classes=config.num_classes,
-            base_channels=config.base_channels,
-            block_layers=config.block_layers,
-            quant_type=config.quant_type,
-        )
+        return BitResNet(config=config)

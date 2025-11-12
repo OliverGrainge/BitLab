@@ -1,54 +1,54 @@
-# Training configuration for BitUNet DDPM on CIFAR-10
+# Training configuration for BitUNet DDPM on CIFAR-10 - Optimized for FID
 
 # Run settings
-run_name: "bitddpm-unet"
+run_name: "bitddpm-unet-optimized"
 wandb_project: "bitlab-cifar10"
 wandb_entity: null
 
 # Trainer settings
-max_steps: 800000  # CIFAR-10 benefits from longer training
+max_steps: 1200000  # Extended training for better convergence
 accelerator: "auto"
 devices: "auto"
-precision: "bf16-mixed"  # Good choice for modern GPUs
-grad_clip_val: 1.0  # Enable gradient clipping for stability
-accumulate_grad_batches: 1  # Reduce if batch size allows
+precision: "bf16-mixed"
+grad_clip_val: 1.0
+accumulate_grad_batches: 2  # Effective batch size = 256 * 2 = 512
 log_every_n_steps: 100
-validate_every_n_steps: 5000  # More frequent validation
+validate_every_n_steps: 5000
 
 # Data settings
-train_batch_size: 128  # Good if GPU memory allows, else reduce to 64
-val_batch_size: 128  # Match train batch size
-num_workers: 0  # Speed up data loading (adjust based on CPU cores)
+train_batch_size: 64  # Increased - reduce if OOM
+val_batch_size: 64
+num_workers: 8  # Adjusted for better data loading
 val_split: 0.02
 seed: 42
 
 # Optimizer settings
 optimizer: "adamw"
-learning_rate: 0.0001  # Lower LR is more stable for diffusion models
-weight_decay: 0.0
+learning_rate: 0.0002  # Slightly higher for larger model
+weight_decay: 0.01  # Small weight decay for regularization
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_epsilon: 1.0e-8
 
 # Learning rate scheduler settings
-lr_scheduler: "constant"  # Constant works well after warmup
-lr_warmup_steps: 5000  # Longer warmup for stability
-max_lr_steps: null
+lr_scheduler: "cosine"  # Cosine annealing works better
+lr_warmup_steps: 10000  # Longer warmup for stability
+max_lr_steps: 1200000  # Match max_steps
 
 # Diffusion settings
-beta_schedule: "linear"  # Linear is standard and works well
-beta_start: 0.0001
-beta_end: 0.02
+beta_schedule: "cosine"  # Better for image generation
+beta_start: 0.0001  # Ignored for cosine but kept for compatibility
+beta_end: 0.02  # Ignored for cosine but kept for compatibility
 num_timesteps: 1000
-loss_type: "l2"  # L2 is standard for DDPM
-prediction_type: "epsilon"  # Standard noise prediction
+loss_type: "l2"
+prediction_type: "epsilon"  # Or try "v" for v-prediction
 
 # EMA settings
 use_ema: true
-ema_decay: 0.9999  # Good default
+ema_decay: 0.9999
 
 # Sampling settings
-num_sample_steps: 250  # Use more steps for better quality validation samples
+num_sample_steps: 50  # Standard for FID evaluation with DDIM
 sample_every_n_steps: 5000
 num_samples: 16
 
@@ -57,15 +57,15 @@ grad_norm_log_every_n_steps: 100
 weight_histogram_log_every_n_epochs: 1
 sample_log_every_n_epochs: 1
 
-# Model architecture settings
+# Model architecture settings - Scaled up for better quality
 model:
   image_size: 32
   in_channels: 3
   out_channels: 3
-  model_channels: 128  # Good base for CIFAR-10
-  attention_resolutions: [2]  # Only at 16x16, sufficient for 32x32 images
-  num_heads: 4
-  num_res_blocks: 2
-  channel_mult: [1, 2, 2, 2]  # Good progression for 32x32
-  dropout: 0.1  # Good regularization level
-  quant_type: "ai8pc_wpt"
+  model_channels: 256  # Doubled from 128
+  attention_resolutions: [4, 2]  # Added attention at 8x8
+  num_heads: 8  # Doubled from 4
+  num_res_blocks: 3  # Increased from 2
+  channel_mult: [1, 2, 2, 2]  # Keep same multipliers
+  dropout: 0.1
+  quant_type: "none"  # Consider "none" for baseline

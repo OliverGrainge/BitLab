@@ -1,3 +1,4 @@
-from bitlab.bitmodels.imagegeneration.image import BitUNetConfig, BitUNetModel
+from bitlab.bitmodels.imagegeneration.unet import (BitUNetConfig,
+                                                         BitUNetModel)
 
 __all__ = ["BitUNetModel", "BitUNetConfig"]

@@ -35,7 +35,15 @@ class CIFAR10DataModule(pl.LightningDataModule):
         self.seed = seed
 
         self._datasets: Dict[str, Any] = {}
-        self.image_transform = transforms.Compose(
+
+        self.image_train_transform = transforms.Compose([
+            transforms.Lambda(lambda img: img.convert("RGB")),
+            transforms.RandomHorizontalFlip(p=0.5),  # Add this
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+        ])
+
+        self.image_val_transform = transforms.Compose(
             [
                 transforms.Lambda(lambda img: img.convert("RGB")),
                 transforms.ToTensor(),
@@ -72,8 +80,8 @@ class CIFAR10DataModule(pl.LightningDataModule):
             train_dataset = split["train"]
             val_dataset = split["test"]
 
-        train_dataset.set_transform(self._transform_batch)
-        val_dataset.set_transform(self._transform_batch)
+        train_dataset.set_transform(self._transform_train_batch)
+        val_dataset.set_transform(self._transform_val_batch)
 
         self._datasets["train"] = train_dataset
         self._datasets["val"] = val_dataset
@@ -117,8 +125,13 @@ class CIFAR10DataModule(pl.LightningDataModule):
                 return candidate
         return None
 
-    def _transform_batch(self, examples: Dict[str, Any]) -> Dict[str, Any]:
-        images = [self.image_transform(image) for image in examples["img"]]
+    def _transform_train_batch(self, examples: Dict[str, Any]) -> Dict[str, Any]:
+        images = [self.image_train_transform(image) for image in examples["img"]]
+        examples["pixel_values"] = images
+        return {"pixel_values": examples["pixel_values"]}
+
+    def _transform_val_batch(self, examples: Dict[str, Any]) -> Dict[str, Any]:
+        images = [self.image_val_transform(image) for image in examples["img"]]
         examples["pixel_values"] = images
         return {"pixel_values": examples["pixel_values"]}
 

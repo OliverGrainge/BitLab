@@ -31,7 +31,7 @@ from PIL import Image
 from tqdm.auto import tqdm
 
 from bitlab.bitmodels import BitUNetConfig, BitUNetModel
-from bitlab.bittrainer import BitDDPMTrainer
+from bitlab.bittrainer import BitImageDiffusionTrainer
 
 
 def get_device() -> torch.device:
@@ -50,7 +50,9 @@ def load_config(config_path: Path) -> dict:
         return yaml.safe_load(fp)
 
 
-def build_diffusion_module(config: dict) -> Tuple[BitDDPMTrainer, BitUNetConfig]:
+def build_diffusion_module(
+    config: dict,
+) -> Tuple[BitImageDiffusionTrainer, BitUNetConfig]:
     quant_type = config["model"].get(
         "quant_type", BitUNetConfig.model_fields["quant_type"].default
     )
@@ -69,7 +71,7 @@ def build_diffusion_module(config: dict) -> Tuple[BitDDPMTrainer, BitUNetConfig]
 
     model = BitUNetModel(model_cfg)
 
-    diffusion_module = BitDDPMTrainer(
+    diffusion_module = BitImageDiffusionTrainer(
         model=model,
         image_size=model_cfg.image_size,
         in_channels=model_cfg.in_channels,
@@ -90,7 +92,7 @@ def build_diffusion_module(config: dict) -> Tuple[BitDDPMTrainer, BitUNetConfig]
 
 
 def load_checkpoint(
-    module: BitDDPMTrainer, checkpoint_path: Path, device: torch.device
+    module: BitImageDiffusionTrainer, checkpoint_path: Path, device: torch.device
 ) -> None:
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
@@ -170,7 +172,7 @@ def export_real_images(
 
 
 def export_generated_images(
-    module: BitDDPMTrainer,
+    module: BitImageDiffusionTrainer,
     num_samples: int,
     batch_size: int,
     num_steps: int | None,
