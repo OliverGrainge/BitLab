@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import Field
 
 from bitlab.bitmodels.config import BaseBitModelConfig, register_bitconfig
+from bitlab.bitmodels.tasks import ModelTask
 
 
 @register_bitconfig("bitnet")
@@ -29,6 +30,9 @@ class BitNetConfig(BaseBitModelConfig):
     quant_type: Identifier of the Bit quantization scheme for BitLinear layers.
     """
 
+    task: Literal[ModelTask.CAUSAL_LM.value] = Field(
+        default=ModelTask.CAUSAL_LM.value, frozen=True
+    )
     model_type: Literal["bitnet"] = Field(default="bitnet", frozen=True)
     vocab_size: int = Field(default=128256)
     hidden_size: int = Field(default=2560)

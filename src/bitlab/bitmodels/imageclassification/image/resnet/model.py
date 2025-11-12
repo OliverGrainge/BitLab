@@ -9,7 +9,8 @@ import torch.nn.functional as F
 
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.base import BaseBitModel
-from bitlab.bitmodels.classification.image.resnet.config import BitResNetConfig
+from bitlab.bitmodels.imageclassification.image.resnet.config import BitResNetConfig
+from bitlab.bitmodels.mixins import ImageClassificationMixin
 from bitlab.bnn.bitlayers import BitConv2d
 
 
@@ -134,7 +135,7 @@ class BitResNet(nn.Module):
 
 
 @register_bitmodel("bitresnet")
-class BitResNetModel(BaseBitModel):
+class BitResNetModel(ImageClassificationMixin, BaseBitModel):
     """BitResNetModel wraps the ResNet architecture with config support."""
 
     config_cls: ClassVar[type[BitResNetConfig]] = BitResNetConfig

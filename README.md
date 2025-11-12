@@ -52,6 +52,32 @@ model = SimpleBNN()
 deployed_model = model.deploy()
 ```
 
+### BitModels Auto API
+
+BitLab bundles reference models for common tasks such as causal language modeling,
+image classification, and unconditional image generation. You can instantiate them
+directly from configuration objects or pretrained weights with task-specific auto
+helpers:
+
+```python
+from bitlab.bitmodels import (
+    BitAutoModelForCausalLM,
+    BitAutoModelForImageClassification,
+    BitAutoModelForImageGeneration,
+    BitMLPConfig,
+    BitNetConfig,
+)
+
+# Configure a tiny classifier
+config = BitMLPConfig(hidden_dims=(128, 64), num_classes=10)
+classifier = BitAutoModelForImageClassification.from_config(config)
+predictions = classifier.predict(torch.randn(8, 1, 28, 28))["predictions"]
+
+# Load a causal LM (requires the appropriate checkpoint to be available)
+lm = BitAutoModelForCausalLM.from_config(BitNetConfig())
+tokens = lm.generate(torch.ones(1, 4, dtype=torch.long))
+```
+
 ## Testing the Installation
 
 After installation, you can verify everything works:

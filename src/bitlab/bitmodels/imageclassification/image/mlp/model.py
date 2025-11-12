@@ -9,7 +9,8 @@ import torch.nn as nn
 import bitlab.bnn as bnn
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.base import BaseBitModel
-from bitlab.bitmodels.classification.image.mlp.config import BitMLPConfig
+from bitlab.bitmodels.imageclassification.image.mlp.config import BitMLPConfig
+from bitlab.bitmodels.mixins import ImageClassificationMixin
 from bitlab.bnn.bitlayers import BitLinear
 
 
@@ -50,7 +51,7 @@ class BitMLP(nn.Module):
 
 
 @register_bitmodel("bitmlp")
-class BitMLPModel(BaseBitModel):
+class BitMLPModel(ImageClassificationMixin, BaseBitModel):
     """BitMLPModel wraps the MLP architecture with registry + config support."""
 
     config_cls: ClassVar[type[BitMLPConfig]] = BitMLPConfig

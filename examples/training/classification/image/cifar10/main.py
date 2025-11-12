@@ -12,7 +12,7 @@ from datamodule import CIFAR10ClassificationDataModule
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from bitlab.bitmodels.classification import BitResNetConfig, BitResNetModel
+from bitlab.bitmodels.imageclassification import BitResNetConfig, BitResNetModel
 from bitlab.bittrainer.callbacks import (ClassificationVisualizationLogger,
                                          GradientNormLogger,
                                          WeightHistogramLogger)

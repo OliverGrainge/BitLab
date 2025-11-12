@@ -3,6 +3,7 @@ from typing import Literal, Tuple
 from pydantic import Field
 
 from bitlab.bitmodels.config import BaseBitModelConfig, register_bitconfig
+from bitlab.bitmodels.tasks import ModelTask
 
 
 @register_bitconfig("bitmlp")
@@ -15,6 +16,9 @@ class BitMLPConfig(BaseBitModelConfig):
     quant_type: Quantization type identifier when using `BitLinear`.
     """
 
+    task: Literal[ModelTask.IMAGE_CLASSIFICATION.value] = Field(
+        default=ModelTask.IMAGE_CLASSIFICATION.value, frozen=True
+    )
     model_type: Literal["bitmlp"] = Field(default="bitmlp", frozen=True)
     input_size: int = Field(default=28 * 28)
     hidden_dims: Tuple[int, ...] = Field(default=(256, 256))

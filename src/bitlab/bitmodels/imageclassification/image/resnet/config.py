@@ -3,6 +3,7 @@ from typing import Literal, Tuple
 from pydantic import Field
 
 from bitlab.bitmodels.config import BaseBitModelConfig, register_bitconfig
+from bitlab.bitmodels.tasks import ModelTask
 
 
 @register_bitconfig("bitresnet")
@@ -16,6 +17,9 @@ class BitResNetConfig(BaseBitModelConfig):
     quant_type: Quantization type identifier when using `BitConv2d`.
     """
 
+    task: Literal[ModelTask.IMAGE_CLASSIFICATION.value] = Field(
+        default=ModelTask.IMAGE_CLASSIFICATION.value, frozen=True
+    )
     model_type: Literal["bitresnet"] = Field(default="bitresnet", frozen=True)
     num_classes: int = Field(default=10)
     in_channels: int = Field(default=3)

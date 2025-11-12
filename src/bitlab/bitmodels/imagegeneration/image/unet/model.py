@@ -7,7 +7,8 @@ import torch.nn.functional as F
 
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.base import BaseBitModel
-from bitlab.bitmodels.diffusion.image.unet.config import BitUNetConfig
+from bitlab.bitmodels.imagegeneration.image.unet.config import BitUNetConfig
+from bitlab.bitmodels.mixins import ImageGenerationMixin
 
 
 class RMSNorm(nn.Module):
@@ -426,8 +427,8 @@ class BitUNet(nn.Module):
         return self.out(h)
 
 
-@register_bitmodel("quantized_bitunet")
-class BitUNetModel(BaseBitModel):
+@register_bitmodel("bitunet")
+class BitUNetModel(ImageGenerationMixin, BaseBitModel):
     """
     Bit U-Net Model (quantized)
 
@@ -467,3 +468,5 @@ class BitUNetModel(BaseBitModel):
             use_scale_shift_norm=config.use_scale_shift_norm,
             quant_type=config.quant_type,
         )
+
+

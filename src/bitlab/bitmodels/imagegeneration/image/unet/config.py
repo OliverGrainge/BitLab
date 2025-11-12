@@ -3,6 +3,7 @@ from typing import Literal, Tuple
 from pydantic import Field
 
 from bitlab.bitmodels.config import BaseBitModelConfig, register_bitconfig
+from bitlab.bitmodels.tasks import ModelTask
 
 
 @register_bitconfig("bitunet")
@@ -21,6 +22,9 @@ class BitUNetConfig(BaseBitModelConfig):
     quant_type: Identifier of the quantization scheme to use for BitConv layers
     """
 
+    task: Literal[ModelTask.IMAGE_GENERATION.value] = Field(
+        default=ModelTask.IMAGE_GENERATION.value, frozen=True
+    )
     model_type: Literal["bitunet"] = Field(default="bitunet", frozen=True)
     image_size: int = Field(default=64)
     in_channels: int = Field(default=3)

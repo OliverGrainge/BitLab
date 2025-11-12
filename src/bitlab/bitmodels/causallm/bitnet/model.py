@@ -7,8 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from bitlab.bitmodels.auto import register_bitmodel
-from bitlab.bitmodels.autoregressive.bitnet.config import BitNetConfig
 from bitlab.bitmodels.base import BaseBitModel
+from bitlab.bitmodels.causallm.bitnet.config import BitNetConfig
+from bitlab.bitmodels.mixins import CausalLMMixin
 from bitlab.bnn.bitlayers import BitLinear
 
 
@@ -467,7 +468,7 @@ class BitNetLM(nn.Module):
 
 
 @register_bitmodel("bitnet")
-class BitNetForCausalLM(BaseBitModel):
+class BitNetForCausalLM(CausalLMMixin, BaseBitModel):
     """BitNet causal language model with registry + config integration."""
 
     config_cls: ClassVar[type[BitNetConfig]] = BitNetConfig
