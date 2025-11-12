@@ -16,9 +16,9 @@ log_every_n_steps: 100
 validate_every_n_steps: 5000
 
 # Data settings
-train_batch_size: 64  # Increased - reduce if OOM
-val_batch_size: 64
-num_workers: 8  # Adjusted for better data loading
+train_batch_size: 4  # Increased - reduce if OOM
+val_batch_size: 4
+num_workers: 0  # Adjusted for better data loading
 val_split: 0.02
 seed: 42
 

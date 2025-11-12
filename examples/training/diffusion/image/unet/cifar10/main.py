@@ -15,7 +15,8 @@ from pytorch_lightning.loggers import WandbLogger
 from bitlab.bitmodels.imagegeneration import BitUNetConfig, BitUNetModel
 from bitlab.bittrainer.callbacks import (DiffusionSampleLogger,
                                          GradientNormLogger,
-                                         WeightHistogramLogger)
+                                         WeightHistogramLogger, 
+                                         FIDCallback)
 from bitlab.bittrainer.diffusion import BitImageDiffusionTrainer
 
 
@@ -49,6 +50,8 @@ def main(config_path: str) -> None:
         val_split=config["val_split"],
         seed=config["seed"],
     )
+    datamodule.prepare_data()
+    datamodule.setup(stage="fit")
 
     quant_type = config["model"].get(
         "quant_type", BitUNetConfig.model_fields["quant_type"].default
@@ -85,7 +88,7 @@ def main(config_path: str) -> None:
         loss_type=config["loss_type"],
         prediction_type=config["prediction_type"],
         # Training parameters
-        learning_rate=config["learning_rate"],
+        learning_rate=float(config["learning_rate"]),
         lr_warmup_steps=config["lr_warmup_steps"],
         lr_scheduler=config["lr_scheduler"],
         max_lr_steps=config["max_lr_steps"],
@@ -97,10 +100,10 @@ def main(config_path: str) -> None:
         num_samples=config["num_samples"],
         # Optimizer parameters
         optimizer=config["optimizer"],
-        weight_decay=config["weight_decay"],
-        adam_beta1=config["adam_beta1"],
-        adam_beta2=config["adam_beta2"],
-        adam_epsilon=config["adam_epsilon"],
+        weight_decay=float(config["weight_decay"]),
+        adam_beta1=float(config["adam_beta1"]),
+        adam_beta2=float(config["adam_beta2"]),
+        adam_epsilon=float(config["adam_epsilon"]),
     )
 
     checkpoint_callback = ModelCheckpoint(
@@ -129,6 +132,27 @@ def main(config_path: str) -> None:
         ),
     ]
 
+
+    fid_config = config.get("fid", {})
+    stats_path = fid_config.get("stats_path") or "./real_images_stats.npz"
+    eval_callbacks = [
+        FIDCallback(
+            val_dataloader=datamodule.val_dataloader(),
+            stats_path=stats_path,
+            num_samples=config["num_samples"],
+            every_n_epochs=config["fid_every_n_epochs"],
+            every_n_steps=config["fid_every_n_steps"],
+            num_sample_steps=config["num_sample_steps"],
+            use_ema=config["use_ema"],
+            sample_batch_size=config["sample_batch_size"],
+            fid_batch_size=config["fid_batch_size"],
+            cleanup_after=fid_config.get("cleanup_after", True),
+            num_workers=fid_config.get("num_workers", 4),
+            max_real_samples=fid_config.get("max_real_samples", 10000),
+            dims=fid_config.get("dims", 2048),
+        )
+    ]
+
     logger = WandbLogger(
         project=config["wandb_project"],
         entity=config.get("wandb_entity"),
@@ -146,7 +170,7 @@ def main(config_path: str) -> None:
         gradient_clip_val=config["grad_clip_val"],
         accumulate_grad_batches=config["accumulate_grad_batches"],
         log_every_n_steps=config["log_every_n_steps"],
-        callbacks=[checkpoint_callback, lr_monitor, *logging_callbacks],
+        callbacks=[checkpoint_callback, lr_monitor, *logging_callbacks, *eval_callbacks],
         logger=logger,
         max_epochs=None,
     )
