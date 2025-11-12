@@ -133,25 +133,6 @@ def main(config_path: str) -> None:
     ]
 
 
-    fid_config = config.get("fid", {})
-    stats_path = fid_config.get("stats_path") or "./real_images_stats.npz"
-    eval_callbacks = [
-        FIDCallback(
-            val_dataloader=datamodule.val_dataloader(),
-            stats_path=stats_path,
-            num_samples=config["num_samples"],
-            every_n_epochs=config["fid_every_n_epochs"],
-            every_n_steps=config["fid_every_n_steps"],
-            num_sample_steps=config["num_sample_steps"],
-            use_ema=config["use_ema"],
-            sample_batch_size=config["sample_batch_size"],
-            fid_batch_size=config["fid_batch_size"],
-            cleanup_after=fid_config.get("cleanup_after", True),
-            num_workers=fid_config.get("num_workers", 4),
-            max_real_samples=fid_config.get("max_real_samples", 10000),
-            dims=fid_config.get("dims", 2048),
-        )
-    ]
 
     logger = WandbLogger(
         project=config["wandb_project"],
@@ -170,7 +151,7 @@ def main(config_path: str) -> None:
         gradient_clip_val=config["grad_clip_val"],
         accumulate_grad_batches=config["accumulate_grad_batches"],
         log_every_n_steps=config["log_every_n_steps"],
-        callbacks=[checkpoint_callback, lr_monitor, *logging_callbacks, *eval_callbacks],
+        callbacks=[checkpoint_callback, lr_monitor, *logging_callbacks],
         logger=logger,
         max_epochs=None,
     )
