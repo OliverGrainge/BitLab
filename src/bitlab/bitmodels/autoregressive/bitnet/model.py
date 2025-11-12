@@ -499,29 +499,66 @@ class BitNetForCausalLM(BaseBitModel):
         )
 
 
-def load_weights_from_hf(model: BitNetForCausalLM, hf_model_path: str) -> BitNetForCausalLM:
-    """
-    Load weights from a Hugging Face BitNet checkpoint into this implementation.
+    @classmethod
+    def _load_weights(
+        cls,
+        *,
+        weights: Optional[str] = None,
+        model_id: Optional[str] = None,
+        config_overrides: Optional[dict[str, Any]] = None,
+        config_kwargs: Optional[dict[str, Any]] = None,
+        model_kwargs: Optional[dict[str, Any]] = None,
+        torch_dtype: torch.dtype = torch.float16,
+        report_mismatches: bool = True,
+    ) -> "BitNetForCausalLM":
+        """Return a BitNet instance initialised from a Hugging Face checkpoint."""
+        from transformers import AutoConfig, AutoModelForCausalLM
 
-    Any leading ``model.`` prefix on Hugging Face parameter names is stripped before
-    loading to match the local module hierarchy.
-    """
-    from transformers import AutoModelForCausalLM
+        hf_model_id = model_id or weights or "microsoft/bitnet-b1.58-2B-4T-bf16"
+        cfg_kwargs = config_kwargs or {}
+        mdl_kwargs = model_kwargs or {}
 
-    hf_model = AutoModelForCausalLM.from_pretrained(hf_model_path)
-    hf_state_dict = hf_model.state_dict()
+        hf_cfg = AutoConfig.from_pretrained(hf_model_id, **cfg_kwargs)
+        config_dict: dict[str, Any] = dict(
+            vocab_size=hf_cfg.vocab_size,
+            hidden_size=hf_cfg.hidden_size,
+            intermediate_size=hf_cfg.intermediate_size,
+            num_hidden_layers=hf_cfg.num_hidden_layers,
+            num_attention_heads=hf_cfg.num_attention_heads,
+            num_key_value_heads=getattr(hf_cfg, "num_key_value_heads", hf_cfg.num_attention_heads),
+            head_dim=getattr(hf_cfg, "head_dim", None),
+            hidden_act=hf_cfg.hidden_act,
+            max_position_embeddings=hf_cfg.max_position_embeddings,
+            rms_norm_eps=getattr(hf_cfg, "rms_norm_eps", 1e-6),
+            tie_word_embeddings=getattr(hf_cfg, "tie_word_embeddings", False),
+            rope_theta=getattr(hf_cfg, "rope_theta", 10000.0),
+            attention_bias=getattr(hf_cfg, "attention_bias", False),
+            attention_dropout=getattr(hf_cfg, "attention_dropout", 0.0),
+            quant_type="ai8ptk_wpt",
+        )
+        if config_overrides:
+            config_dict.update(config_overrides)
+        config = BitNetConfig(**config_dict)
 
-    mapped_state_dict: dict[str, torch.Tensor] = {}
-    for key, value in hf_state_dict.items():
-        new_key = key.removeprefix("model.")
-        mapped_state_dict[new_key] = value
+        model = cls(config)
 
-    missing_keys, unexpected_keys = model.load_state_dict(mapped_state_dict, strict=False)
+        # HF emits a deprecation warning for `torch_dtype`; prefer `dtype` when available.
+        if "dtype" not in mdl_kwargs:
+            mdl_kwargs = dict(mdl_kwargs)
+            mdl_kwargs["dtype"] = torch_dtype
 
-    print(f"Loaded weights from {hf_model_path}")
-    if missing_keys:
-        print(f"Missing keys: {missing_keys}")
-    if unexpected_keys:
-        print(f"Unexpected keys: {unexpected_keys}")
+        hf_model = AutoModelForCausalLM.from_pretrained(
+            hf_model_id,
+            **mdl_kwargs,
+        )
 
-    return model
+        state = {f"model.{k}": v for k, v in hf_model.state_dict().items()}
+        missing, unexpected = model.load_state_dict(state, strict=False)
+
+        if report_mismatches:
+            if missing:
+                print(f"Missing keys: {missing}")
+            if unexpected:
+                print(f"Unexpected keys: {unexpected}")
+
+        return model

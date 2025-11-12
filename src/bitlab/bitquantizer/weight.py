@@ -5,7 +5,7 @@ from typing import Tuple
 import torch
 
 
-@torch.compile
+
 def quantize_weight_wpt(
     w: torch.Tensor, eps: float = 1e-5
 ) -> Tuple[torch.Tensor, torch.Tensor]:

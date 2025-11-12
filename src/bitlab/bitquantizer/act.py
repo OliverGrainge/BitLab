@@ -52,7 +52,7 @@ def quantize_act_ai8pt(
     qx = (x * inv_scale).round().clamp(-127, 127)
     return inv_scale, qx
 
-@torch.compile
+
 def quantize_act_ai8ptk(x: torch.Tensor, eps: float = 1e-5) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Returns: (inv_scale, qtensor)

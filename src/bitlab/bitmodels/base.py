@@ -78,7 +78,7 @@ class BaseBitModel(nn.Module):
     # Quantization -------------------------------------------------------- #
     def uses_quantization(self) -> bool:
         """Whether the resolved config enables Bit quantization."""
-        return self.quant_type is not None or self.quant_type is not "none"
+        return self.quant_type is not None or self.quant_type != "none"
 
     def get_quant_type(self, default: Optional[str] = None) -> Optional[str]:
         """Return the configured quantization type, falling back to `default`."""
@@ -120,3 +120,13 @@ class BaseBitModel(nn.Module):
 
     def _has_custom_build(self) -> bool:
         return type(self).build_model is not BaseBitModel.build_model
+
+
+    @classmethod
+    def _load_weights(
+        cls,
+        *,
+        weights: Optional[str] = None,
+        **kwargs: Any,
+    ) -> "BaseBitModel":
+        raise NotImplementedError(f"{cls.__name__} must override `_load_weights`")
