@@ -83,6 +83,8 @@ class CleanFIDCallback(pl.Callback):
 
         gen_fn = self._make_gen_fn(pl_module)
 
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
         score = fid.compute_fid(
             gen=gen_fn,
             dataset_name=self.dataset_name,
@@ -91,6 +93,7 @@ class CleanFIDCallback(pl.Callback):
             mode=self.mode,
             num_gen=self.num_gen,
             batch_size=self.batch_size,
+            device=device,
         )
 
         pl_module.log(
