@@ -3,19 +3,19 @@ seed: 42
 # Experiment / logging
 # =========================
 experiment:
-  run_name: "full-precision-baseline"
+  run_name: "full-precision-baseline-vpred"
   wandb_project: "bitlab-cifar10"
 
 # =========================
 # Trainer
 # =========================
 trainer:
-  max_steps: 800000          # Extended training for better convergence
+  max_steps: 350000          # Fewer steps; still plenty of images for CIFAR-10
   accelerator: "auto"
   devices: "auto"
   precision: "bf16-mixed"
   grad_clip_val: 1.0
-  accumulate_grad_batches: 4  # Effective batch size = 256 * 2 = 512
+  accumulate_grad_batches: 1  # One forward/backward per step; effective batch = 64
   log_every_n_steps: 1000
   validate_every_n_steps: 5000
 
@@ -23,11 +23,10 @@ trainer:
 # Data
 # =========================
 data:
-  train_batch_size: 64        # Reduce if OOM
+  train_batch_size: 64        # Peak memory unchanged vs your old setup
   val_batch_size: 64
-  num_workers: 8
+  num_workers: 4
   val_split: 0.02
-
 
 # =========================
 # Optimizer
@@ -35,7 +34,7 @@ data:
 optimizer:
   name: "adamw"
   lr: 0.0002
-  weight_decay: 0.0
+  weight_decay: 0.01          # Add proper regularization for UNet
   beta1: 0.9
   beta2: 0.999
   eps: 1.0e-8
@@ -46,31 +45,31 @@ optimizer:
 scheduler:
   name: "cosine"              # "constant", "linear", or "cosine"
   warmup_steps: 5000
-  max_steps: 800000
+  max_steps: 350000           # Match trainer.max_steps
 
 # =========================
 # Diffusion
 # =========================
 diffusion:
   beta_schedule: "cosine"     # Better for image generation
-  beta_start: 0.0001          # Kept for compatibility
-  beta_end: 0.02              # Kept for compatibility
+  beta_start: 0.0001
+  beta_end: 0.02
   num_timesteps: 1000
   loss_type: "l2"
-  prediction_type: "epsilon"  # Or "v"
+  prediction_type: "v"        # More stable and usually better FID than epsilon
 
 # =========================
 # EMA
 # =========================
 ema:
   enabled: true
-  decay: 0.9999
+  decay: 0.9997               # Less extreme than 0.9999; responds faster
 
 # =========================
 # Sampling
 # =========================
 sampling:
-  num_sample_steps: 100              # For DDIM FID evaluation
+  num_sample_steps: 100       # For DDIM FID evaluation
   num_samples: 16             # Default batch for logging / sampling
 
 # =========================
@@ -81,27 +80,14 @@ logging:
     every_n_steps: 500
 
   weight_histograms:
-    every_n_steps: 5000
+    every_n_steps: 10000
 
   images:
-    every_n_steps: 25000
+    every_n_steps: 5000
     num_images: 16
     nrow: 4
     log_key: "train/image_grid"
     use_ema: true
-
-  fidandinception:
-    enabled: true
-    dataset_name: "cifar10"
-    dataset_res: 32
-    dataset_split: "test"
-    mode: "clean"
-    num_gen: 10000
-    batch_size: 64
-    every_n_steps: 100000
-    is_splits: 10
-    is_normalize: true
-    compute_is: true
 
 
 # =========================
@@ -111,10 +97,10 @@ model:
   image_size: 32
   in_channels: 3
   out_channels: 3
-  model_channels: 192
+  model_channels: 128         # Smaller, more typical for CIFAR-10
   attention_resolutions: [4, 2]
   num_heads: 6
-  num_res_blocks: 3
+  num_res_blocks: 2           # Standard; cheaper and sufficient
   channel_mult: [1, 2, 2, 2]
-  dropout: 0.1
+  dropout: 0.0                # Dropout usually hurts on CIFAR-10
   quant_type: "none"

@@ -127,18 +127,6 @@ def main(cfg_path: str) -> None:
             log_key=cfg["logging"]["images"]["log_key"],
             use_ema=cfg["logging"]["images"]["use_ema"],
         ),
-        FIDAndInceptionCallback(
-            dataset_name=cfg["logging"]["fidandinception"]["dataset_name"],
-            dataset_res=cfg["logging"]["fidandinception"]["dataset_res"],
-            dataset_split=cfg["logging"]["fidandinception"]["dataset_split"],
-            mode=cfg["logging"]["fidandinception"]["mode"],
-            num_gen=cfg["logging"]["fidandinception"]["num_gen"],
-            batch_size=cfg["logging"]["fidandinception"]["batch_size"],
-            every_n_steps=cfg["logging"]["fidandinception"]["every_n_steps"],
-            is_splits=cfg["logging"]["fidandinception"]["is_splits"],
-            is_normalize=cfg["logging"]["fidandinception"]["is_normalize"],
-            compute_is=cfg["logging"]["fidandinception"]["compute_is"],
-        ),
     ]
 
     logger = WandbLogger(
