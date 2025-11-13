@@ -12,7 +12,7 @@ devices: "auto"
 precision: "bf16-mixed"
 grad_clip_val: 1.0
 accumulate_grad_batches: 2  # Effective batch size = 256 * 2 = 512
-log_every_n_steps: 100
+log_every_n_steps: 5  # Align callback cadence with validation frequency
 validate_every_n_steps: 5000
 
 # Data settings
@@ -49,13 +49,19 @@ ema_decay: 0.9999
 
 # Sampling settings
 num_sample_steps: 50  # Standard for FID evaluation with DDIM
-sample_every_n_steps: 5000
 num_samples: 16
 
 # Logging settings
-grad_norm_log_every_n_steps: 100
-weight_histogram_log_every_n_epochs: 1
-sample_log_every_n_epochs: 1
+image_sample_num_images: 16
+image_sample_nrow: 4
+image_sample_log_key: "train/image_grid"
+image_sample_use_ema: true
+fid_dataset_name: "cifar10"
+fid_dataset_res: 32
+fid_dataset_split: "train"
+fid_mode: "clean"
+fid_num_gen: 1000
+fid_batch_size: 32
 
 # Model architecture settings - Scaled up for better quality
 model:

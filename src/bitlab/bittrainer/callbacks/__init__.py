@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from .logging import (ClassificationVisualizationLogger, DiffusionSampleLogger,
+from .logging import (ClassificationVisualizationLogger, ImageSampleCallback,
                       GradientNormLogger, WeightHistogramLogger)
-from .diffusion import FIDCallback
+from .diffusion import CleanFIDCallback
 
 __all__ = [
     "ClassificationVisualizationLogger",
-    "DiffusionSampleLogger",
+    "ImageSampleCallback",
     "GradientNormLogger",
     "WeightHistogramLogger",
-    "FIDCallback",
+    "CleanFIDCallback",
 ]

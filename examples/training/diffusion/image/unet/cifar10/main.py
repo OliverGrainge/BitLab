@@ -13,10 +13,6 @@ from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
 from bitlab.bitmodels.imagegeneration import BitUNetConfig, BitUNetModel
-from bitlab.bittrainer.callbacks import (DiffusionSampleLogger,
-                                         GradientNormLogger,
-                                         WeightHistogramLogger, 
-                                         FIDCallback)
 from bitlab.bittrainer.diffusion import BitImageDiffusionTrainer
 
 
@@ -96,12 +92,22 @@ def main(config_path: str) -> None:
         ema_decay=config["ema_decay"],
         num_sample_steps=config["num_sample_steps"],
         num_samples=config["num_samples"],
-        sample_log_every_n_epochs=config["sample_log_every_n_epochs"],
         optimizer=config["optimizer"],
         weight_decay=float(config["weight_decay"]),
         adam_beta1=float(config["adam_beta1"]),
         adam_beta2=float(config["adam_beta2"]),
         adam_epsilon=float(config["adam_epsilon"]),
+        log_every_n_steps=config["log_every_n_steps"],
+        image_sample_num_images=config["image_sample_num_images"],
+        image_sample_nrow=config.get("image_sample_nrow"),
+        image_sample_log_key=config["image_sample_log_key"],
+        image_sample_use_ema=config["image_sample_use_ema"],
+        fid_dataset_name=config["fid_dataset_name"],
+        fid_dataset_res=config["fid_dataset_res"],
+        fid_dataset_split=config["fid_dataset_split"],
+        fid_mode=config["fid_mode"],
+        fid_num_gen=config["fid_num_gen"],
+        fid_batch_size=config["fid_batch_size"],
     )
 
     checkpoint_callback = ModelCheckpoint(

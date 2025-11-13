@@ -14,9 +14,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from bitlab.bittrainer.callbacks import (
-    DiffusionSampleLogger,
+    ImageSampleCallback,
     GradientNormLogger,
     WeightHistogramLogger,
+    CleanFIDCallback
 )
 
 
@@ -127,7 +128,6 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         sample_method: Sampling method - "ddim" or "ddpm" (default: "ddim")
         sample_eta: DDIM stochasticity (default: 0.0)
         num_samples: Number of samples to generate for logging (default: 16)
-        sample_log_every_n_epochs: Log samples every N epochs (default: 1)
 
         # Optimizer parameters
         optimizer: Optimizer type - "adam" or "adamw" (default: "adamw")
@@ -155,19 +155,29 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         sample_method: Literal["ddim", "ddpm"] = "ddim",
         sample_eta: float = 0.0,
         num_samples: int = 16,
-        sample_log_every_n_epochs: int = 1,
         # Optimizer parameters
         optimizer: Literal["adam", "adamw"] = "adamw",
         weight_decay: float = 0.0,
         adam_beta1: float = 0.9,
         adam_beta2: float = 0.999,
         adam_epsilon: float = 1e-8,
+        # Callback configuration
+        log_every_n_steps: int = 10_000,
+        image_sample_num_images: int = 16,
+        image_sample_nrow: Optional[int] = None,
+        image_sample_log_key: str = "train/image_grid",
+        image_sample_use_ema: Optional[bool] = None,
+        fid_dataset_name: str = "cifar10",
+        fid_dataset_res: int = 32,
+        fid_dataset_split: str = "train",
+        fid_mode: str = "clean",
+        fid_num_gen: int = 1_000,
+        fid_batch_size: int = 32,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
 
-        if sample_log_every_n_epochs <= 0:
-            raise ValueError("sample_log_every_n_epochs must be positive.")
+
 
         # Validate that model has generation capabilities
         if not hasattr(model, "generate"):
@@ -189,12 +199,26 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         self.sample_method = sample_method
         self.sample_eta = sample_eta
         self.num_samples = num_samples
-        self.sample_log_every_n_epochs = sample_log_every_n_epochs
         self.optimizer_type = optimizer
         self.weight_decay = weight_decay
         self.adam_beta1 = adam_beta1
         self.adam_beta2 = adam_beta2
         self.adam_epsilon = adam_epsilon
+        if log_every_n_steps <= 0:
+            raise ValueError("log_every_n_steps must be positive.")
+        self.log_every_n_steps = log_every_n_steps
+        self.image_sample_num_images = image_sample_num_images
+        self.image_sample_nrow = image_sample_nrow
+        self.image_sample_log_key = image_sample_log_key
+        self.image_sample_use_ema = (
+            image_sample_use_ema if image_sample_use_ema is not None else self.use_ema
+        )
+        self.fid_dataset_name = fid_dataset_name
+        self.fid_dataset_res = fid_dataset_res
+        self.fid_dataset_split = fid_dataset_split
+        self.fid_mode = fid_mode
+        self.fid_num_gen = fid_num_gen
+        self.fid_batch_size = fid_batch_size
 
         # Setup EMA
         self.ema_model = EMAModel(self.model, decay=ema_decay) if use_ema else None
@@ -468,13 +492,23 @@ class BitImageDiffusionTrainer(pl.LightningModule):
 
         callbacks.extend(
             [
-                GradientNormLogger(every_n_steps=100),
-                WeightHistogramLogger(),
-                DiffusionSampleLogger(
-                    batch_size=self.num_samples,
-                    num_steps=self.num_sample_steps,
-                    log_every_n_epochs=self.sample_log_every_n_epochs,
-                    use_ema=self.use_ema,
+                GradientNormLogger(every_n_steps=self.log_every_n_steps),
+                WeightHistogramLogger(log_every_n_steps=self.log_every_n_steps),
+                ImageSampleCallback(
+                    num_images=self.image_sample_num_images,
+                    every_n_steps=self.log_every_n_steps,
+                    nrow=self.image_sample_nrow,
+                    log_key=self.image_sample_log_key,
+                    use_ema=self.image_sample_use_ema,
+                ),
+                CleanFIDCallback(
+                    dataset_name=self.fid_dataset_name,
+                    dataset_res=self.fid_dataset_res,
+                    dataset_split=self.fid_dataset_split,
+                    mode=self.fid_mode,
+                    num_gen=self.fid_num_gen,
+                    batch_size=self.fid_batch_size,
+                    every_n_steps=self.log_every_n_steps,
                 ),
             ]
         )

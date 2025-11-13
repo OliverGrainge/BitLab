@@ -5,6 +5,13 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torchvision
 from pytorch_lightning import Callback
+import math
+from typing import Optional
+
+import torch
+import pytorch_lightning as pl
+from torchvision.utils import make_grid
+
 
 
 def _iter_named_parameters_by_module_type(
@@ -25,24 +32,6 @@ def _iter_named_parameters_by_module_type(
     return grouped
 
 
-def _log_to_experiment(logger, tag: str, value, global_step: int) -> None:
-    """Log scalar values directly via the underlying experiment if available."""
-    experiment = getattr(logger, "experiment", None)
-    if experiment is None:
-        return
-
-    if hasattr(experiment, "add_scalar"):
-        experiment.add_scalar(tag, value, global_step=global_step)
-    else:
-        try:
-            import wandb  # type: ignore
-
-            if isinstance(value, torch.Tensor):
-                value = value.item()
-            experiment.log({"global_step": global_step, tag: value})
-        except ImportError:
-            print(f"Warning: Could not import wandb to log scalar '{tag}'.")
-
 
 def _log_histogram(logger, tag: str, values: torch.Tensor, global_step: int) -> None:
     experiment = getattr(logger, "experiment", None)
@@ -53,18 +42,30 @@ def _log_histogram(logger, tag: str, values: torch.Tensor, global_step: int) -> 
 
     if hasattr(experiment, "add_histogram"):
         experiment.add_histogram(tag, values_cpu, global_step=global_step)
-    else:
-        try:
-            import wandb  # type: ignore
+        return
 
-            experiment.log(
-                {
-                    "global_step": global_step,
-                    tag: wandb.Histogram(values_cpu.numpy()),
-                }
-            )
-        except ImportError:
-            print(f"Warning: Could not import wandb to log histogram '{tag}'.")
+    try:
+        import wandb  # type: ignore
+        import numpy as np
+
+        flattened = values_cpu.numpy().ravel()
+        if flattened.size == 0:
+            return
+
+        unique_bins = max(1, np.unique(flattened).size)
+        num_bins = min(64, unique_bins)
+
+        experiment.log(
+            {
+                "global_step": global_step,
+                tag: wandb.Histogram(flattened, num_bins=num_bins),
+            }
+        )
+    except ImportError:
+        print(f"Warning: Could not import wandb to log histogram '{tag}'.")
+    except ValueError:
+        # Skip logging if WandB histogram still fails due to degenerate data.
+        pass
 
 
 def _log_image(
@@ -148,18 +149,29 @@ class GradientNormLogger(Callback):
 
 
 class WeightHistogramLogger(Callback):
-    """Log weight histograms grouped by layer type every N validation epochs."""
+    """Log weight histograms grouped by layer type every N training steps."""
 
-    def __init__(self, log_every_n_epochs: int = 1) -> None:
-        if log_every_n_epochs <= 0:
-            raise ValueError("log_every_n_epochs must be positive.")
-        self.log_every_n_epochs = log_every_n_epochs
+    def __init__(self, log_every_n_steps: int = 10_000) -> None:
+        if log_every_n_steps <= 0:
+            raise ValueError("log_every_n_steps must be positive.")
+        self.log_every_n_steps = log_every_n_steps
+        self._last_step = 0  # internal counter
 
-    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx) -> None:
+        # Only main process
+        if not trainer.is_global_zero:
+            return
+
         if trainer.logger is None:
             return
-        if trainer.current_epoch % self.log_every_n_epochs != 0:
+
+        global_step = trainer.global_step
+
+        # Trigger only every N steps
+        if global_step - self._last_step < self.log_every_n_steps:
             return
+
+        self._last_step = global_step
 
         layer_groups = _iter_named_parameters_by_module_type(pl_module.model)
         if not layer_groups:
@@ -169,70 +181,132 @@ class WeightHistogramLogger(Callback):
             for layer_name, parameter in param_list:
                 tag = f"weights/{layer_type}/{layer_type}-{layer_name}"
                 _log_histogram(
-                    trainer.logger, tag, parameter.data, pl_module.global_step
+                    trainer.logger,
+                    tag,
+                    parameter.data,
+                    global_step,  # or pl_module.global_step, but this is equivalent here
                 )
 
 
-class DiffusionSampleLogger(Callback):
-    """Generate DDIM samples and log statistics/images during validation."""
+class ImageSampleCallback(pl.Callback):
+    """
+    Log a grid of generated images every N training steps.
+
+    Assumes `pl_module.generate_samples(batch_size=..., use_ema=True)`
+    returns images in [-1, 1] as [B, C, H, W].
+    """
 
     def __init__(
         self,
-        batch_size: int,
-        num_steps: int,
-        log_every_n_epochs: int = 1,
-        use_ema: Optional[bool] = None,
-    ) -> None:
-        if log_every_n_epochs <= 0:
-            raise ValueError("log_every_n_epochs must be positive.")
-
-        self.batch_size = batch_size
-        self.num_steps = num_steps
-        self.log_every_n_epochs = log_every_n_epochs
+        num_images: int = 16,
+        every_n_steps: int = 10_000,
+        nrow: Optional[int] = None,
+        log_key: str = "train/image_grid",
+        use_ema: bool = True,
+    ):
+        super().__init__()
+        self.num_images = num_images
+        self.every_n_steps = every_n_steps
+        self.nrow = nrow or int(math.sqrt(num_images))
+        self.log_key = log_key
         self.use_ema = use_ema
 
-    def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        if trainer.logger is None:
+        self._last_step = 0  # internal counter
+
+    def _generate_images(self, pl_module: pl.LightningModule) -> torch.Tensor:
+        """
+        Uses the module's sampling API (same assumption as your FID callback).
+        """
+        device = pl_module.device
+
+        with torch.no_grad():
+            imgs = pl_module.generate_samples(  # [-1,1], [B,C,H,W]
+                batch_size=self.num_images,
+                use_ema=self.use_ema,
+            ).to(device)
+
+        # Map from [-1,1] -> [0,1]
+        imgs = (imgs.clamp(-1, 1) + 1) / 2.0
+        imgs = imgs.clamp(0.0, 1.0)
+
+        return imgs
+
+    def _log_grid(self, trainer: pl.Trainer, grid: torch.Tensor, global_step: int):
+        logger = trainer.logger
+        if logger is None:
             return
-        if trainer.current_epoch % self.log_every_n_epochs != 0:
+
+        # TensorBoard-like logger
+        if hasattr(logger, "experiment") and hasattr(logger.experiment, "add_image"):
+            logger.experiment.add_image(
+                self.log_key,
+                grid,              # [C,H,W] tensor in [0,1]
+                global_step=global_step,
+            )
             return
 
-        if not hasattr(pl_module, "sample_ddim"):
+        # WandB
+        if hasattr(logger, "experiment") and hasattr(logger.experiment, "log"):
+            try:
+                import wandb
+
+                logger.experiment.log(
+                    {
+                        self.log_key: wandb.Image(
+                            grid, caption=f"step {global_step}"
+                        ),
+                        "global_step": global_step,
+                    }
+                )
+                return
+            except ImportError:
+                pass
+
+        # Generic Lightning log_image API (e.g. some custom loggers)
+        try:
+            logger.log_image(
+                key=self.log_key,
+                images=[grid],
+                caption=[f"step {global_step}"],
+            )
+        except Exception:
+            # If the logger doesn't support images, just fail silently.
+            pass
+
+    def on_train_batch_end(
+        self,
+        trainer: pl.Trainer,
+        pl_module: pl.LightningModule,
+        outputs,
+        batch,
+        batch_idx: int,
+    ) -> None:
+
+        # Only main process
+        if not trainer.is_global_zero:
             return
 
-        sample_kwargs = {
-            "batch_size": self.batch_size,
-            "num_steps": self.num_steps,
-        }
-        if self.use_ema is not None:
-            sample_kwargs["use_ema"] = self.use_ema
+        global_step = trainer.global_step
 
-        samples = pl_module.sample_ddim(**sample_kwargs)
+        # Trigger only every N steps
+        if global_step - self._last_step < self.every_n_steps:
+            return
 
-        sample_means = samples.mean(dim=[1, 2, 3])
-        sample_stds = samples.std(dim=[1, 2, 3])
-        avg_sample_mean = sample_means.mean().item()
-        avg_sample_std = sample_stds.mean().item()
-        inter_sample_variance = samples.var(dim=0).mean().item()
-        global_mean = samples.mean().item()
-        global_std = samples.std().item()
+        self._last_step = global_step
 
-        stats = {
-            "samples/mean": avg_sample_mean,
-            "samples/std": avg_sample_std,
-            "samples/inter_sample_variance": inter_sample_variance,
-            "samples/global_mean": global_mean,
-            "samples/global_std": global_std,
-        }
+        # Switch to eval for sampling, then restore mode
+        was_training = pl_module.training
+        pl_module.eval()
 
-        for tag, value in stats.items():
-            pl_module.log(tag, value, sync_dist=True)
+        imgs = self._generate_images(pl_module)        # [B,C,H,W] in [0,1]
+        grid = make_grid(imgs, nrow=self.nrow)         # [C,H,W]
+        grid = grid.detach().cpu()
 
-        normalized = (samples + 1.0) / 2.0
-        normalized = torch.clamp(normalized, 0.0, 1.0)
-        grid = torchvision.utils.make_grid(normalized, nrow=4, normalize=False)
+        # Restore train mode
+        if was_training:
+            pl_module.train()
 
-        _log_image(trainer.logger, "samples", grid, pl_module.global_step)
+        self._log_grid(trainer, grid, global_step)
 
 
 class ClassificationVisualizationLogger(Callback):
