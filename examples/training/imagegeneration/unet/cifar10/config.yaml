@@ -90,22 +90,18 @@ logging:
     log_key: "train/image_grid"
     use_ema: true
 
-  fid:
+  fidandinception:
     enabled: true
-    dataset: "cifar10"
-    resolution: 32
-    split: "test"
+    dataset_name: "cifar10"
+    dataset_res: 32
+    dataset_split: "test"
     mode: "clean"
-    num_gen: 50000
+    num_gen: 250
     batch_size: 64
-    every_n_steps: 5000
-
-  inception_score: 
-    num_gen: 50000 
-    batch_size: 64 
-    every_n_steps: 5000
-    splits: 10
-    normalize: true
+    every_n_steps: 1
+    is_splits: 10
+    is_normalize: true
+    compute_is: true
 
 
 # =========================

@@ -13,12 +13,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from bitlab.bittrainer.callbacks import (
-    ImageSampleCallback,
-    GradientNormLogger,
-    WeightHistogramLogger,
-    CleanFIDCallback
-)
 
 
 class EMAModel:

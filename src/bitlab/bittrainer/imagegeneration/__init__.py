@@ -1,3 +1,3 @@
-from .imagegeneration import BitImageGenerationTrainer
+from .bitimagegenerationtrainer import BitImageGenerationTrainer
 
 __all__ = ["BitImageGenerationTrainer"]
