@@ -24,7 +24,6 @@ class EMAModel:
     def __init__(self, model: nn.Module, decay: float = 0.9999):
         """
         Initialize EMA model.
-
         Args:
             model: Model to track
             decay: EMA decay rate

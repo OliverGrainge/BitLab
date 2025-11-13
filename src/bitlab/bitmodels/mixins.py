@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Iterable, Optional
+from typing import Any, ClassVar, Iterable, Optional, Union, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -119,30 +119,116 @@ class ImageClassificationMixin:
 
 
 class ImageGenerationMixin:
-    """Helper methods for unconditional diffusion/image generators."""
+    """
+    Alternative version with even cleaner API.
+    
+    In this version, schedulers are simpler and the mixin handles more logic.
+    """
 
-    task: ClassVar[str] = ModelTask.IMAGE_GENERATION.value
+    task: ClassVar[str] = "image_generation"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scheduler = None
+
+    @property
+    def scheduler(self):
+        """Get the current scheduler."""
+        return self._scheduler
+
+    @scheduler.setter
+    def scheduler(self, scheduler):
+        """Set the scheduler for sampling."""
+        self._scheduler = scheduler
 
     @torch.no_grad()
     def sample(
         self,
-        shape: Iterable[int],
-        *,
-        timesteps: int = 50,
-        scheduler: Optional[Any] = None,
+        batch_size: Optional[int] = None,
+        shape: Optional[Union[Tuple[int, ...], torch.Size]] = None,
+        num_steps: int = 50,
         device: Optional[torch.device] = None,
-        **scheduler_kwargs: Any,
-    ) -> torch.Tensor:
+        generator: Optional[torch.Generator] = None,
+        return_intermediate: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, list]]:
+        """
+        Sample from the diffusion model.
+        
+        Args:
+            batch_size: Number of samples to generate (used if shape not provided)
+            shape: Complete shape (B, C, H, W) for samples
+            num_steps: Number of denoising steps
+            device: Device to generate samples on
+            generator: Random generator for reproducibility
+            return_intermediate: If True, return intermediate samples
+            
+        Returns:
+            Generated samples, or (samples, intermediates) if return_intermediate=True
+        """
         self.eval()
+        
+        # Setup
         device = device or next(self.parameters()).device
-        if scheduler is None:
-            raise ValueError(
-                "A scheduler implementing init_noise/scale_model_input/step/finalize is required."
+        if self.scheduler is None:
+            raise ValueError("No scheduler set. Use model.scheduler = scheduler")
+        
+        # Determine shape
+        if shape is None:
+            if batch_size is None:
+                raise ValueError("Must provide either 'shape' or 'batch_size'")
+            shape = self._infer_shape(batch_size)
+        
+        # Initialize
+        sample = torch.randn(shape, device=device, generator=generator)
+        if hasattr(self.scheduler, 'scale_noise'):
+            sample = self.scheduler.scale_noise(sample)
+        
+        intermediates = [] if return_intermediate else None
+        
+        # Denoising loop
+        timesteps = self.scheduler.get_timesteps(num_steps, device=device)
+        for i, t in enumerate(timesteps):
+            # Prepare timestep tensor
+            t_tensor = self._prepare_timestep(t, shape[0], device)
+            
+            # Model forward
+            if hasattr(self.scheduler, 'scale_model_input'):
+                model_input = self.scheduler.scale_model_input(sample, t)
+            else:
+                model_input = sample
+            
+            model_output = self.forward(model_input, t_tensor)
+            
+            # Scheduler step
+            sample = self.scheduler.step(
+                model_output=model_output,
+                timestep=t,
+                sample=sample,
+                return_dict=False,
             )
+            
+            if return_intermediate:
+                intermediates.append(sample.clone())
+        
+        # Post-process
+        if hasattr(self.scheduler, 'post_process'):
+            sample = self.scheduler.post_process(sample)
+        
+        if return_intermediate:
+            return sample, intermediates
+        return sample
 
-        sample = scheduler.init_noise(shape, device=device, **scheduler_kwargs)
-        for t in scheduler.timesteps(timesteps):
-            model_input = scheduler.scale_model_input(sample, t)
-            model_output = self.forward(model_input, t)
-            sample = scheduler.step(model_output, t, sample)
-        return scheduler.finalize(sample)
+    def _infer_shape(self, batch_size: int) -> Tuple[int, ...]:
+        """Infer sampling shape from batch_size. Override in subclasses."""
+        raise NotImplementedError("Implement _infer_shape() or pass 'shape' argument")
+
+    def _prepare_timestep(
+        self, t: Union[int, torch.Tensor], batch_size: int, device: torch.device
+    ) -> torch.Tensor:
+        """Convert timestep to appropriate tensor format."""
+        if isinstance(t, torch.Tensor):
+            if t.dim() == 0:
+                t = t.unsqueeze(0).expand(batch_size)
+            return t.to(device)
+        else:
+            return torch.full((batch_size,), t, device=device, dtype=torch.long)
