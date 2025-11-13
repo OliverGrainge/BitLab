@@ -84,7 +84,7 @@ logging:
     every_n_steps: 5000
 
   images:
-    every_n_steps: 10000
+    every_n_steps: 25000
     num_images: 16
     nrow: 4
     log_key: "train/image_grid"
@@ -96,9 +96,9 @@ logging:
     dataset_res: 32
     dataset_split: "test"
     mode: "clean"
-    num_gen: 250
+    num_gen: 10000
     batch_size: 64
-    every_n_steps: 1
+    every_n_steps: 100000
     is_splits: 10
     is_normalize: true
     compute_is: true
