@@ -1,4 +1,4 @@
-from bitlab.bittrainer.classification import BitImageClassificationTrainer
-from bitlab.bittrainer.diffusion import BitImageDiffusionTrainer
+from bitlab.bittrainer.imageclassification import BitImageClassificationTrainer
+from bitlab.bittrainer.imagegeneration import BitImageGenerationTrainer
 
-__all__ = ["BitImageDiffusionTrainer", "BitImageClassificationTrainer"]
+__all__ = ["BitImageClassificationTrainer", "BitImageGenerationTrainer"]
