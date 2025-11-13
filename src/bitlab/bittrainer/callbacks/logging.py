@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
+from contextlib import contextmanager
 
 import torch
 import torchvision
@@ -212,8 +213,39 @@ class ImageSampleCallback(pl.Callback):
         self.use_ema = use_ema
 
         self._last_step = 0  # internal counter
+        self._progress_bar = None
 
-    def _generate_images(self, pl_module: pl.LightningModule) -> torch.Tensor:
+    @contextmanager
+    def _image_progress(self, enabled: bool = True):
+        if not enabled:
+            yield None
+            return
+
+        try:
+            from tqdm.auto import tqdm
+        except ImportError:
+            yield None
+            return
+
+        total = max(1, self.num_images)
+        self._progress_bar = tqdm(
+            total=total,
+            desc="Image samples",
+            leave=False,
+            unit="img",
+        )
+
+        try:
+            yield self._progress_bar
+        finally:
+            self._progress_bar.close()
+            self._progress_bar = None
+
+    def _generate_images(
+        self,
+        pl_module: pl.LightningModule,
+        progress=None,
+    ) -> torch.Tensor:
         """
         Uses the module's sampling API (same assumption as your FID callback).
         """
@@ -224,6 +256,9 @@ class ImageSampleCallback(pl.Callback):
                 batch_size=self.num_images,
                 use_ema=self.use_ema,
             ).to(device)
+
+        if progress is not None:
+            progress.update(imgs.shape[0])
 
         # Map from [-1,1] -> [0,1]
         imgs = (imgs.clamp(-1, 1) + 1) / 2.0
@@ -298,7 +333,9 @@ class ImageSampleCallback(pl.Callback):
         was_training = pl_module.training
         pl_module.eval()
 
-        imgs = self._generate_images(pl_module)        # [B,C,H,W] in [0,1]
+        with self._image_progress(enabled=trainer.is_global_zero) as progress:
+            imgs = self._generate_images(pl_module, progress)        # [B,C,H,W] in [0,1]
+
         grid = make_grid(imgs, nrow=self.nrow)         # [C,H,W]
         grid = grid.detach().cpu()
 

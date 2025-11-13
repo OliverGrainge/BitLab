@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytorch_lightning as pl
@@ -35,9 +36,38 @@ class CleanFIDCallback(pl.Callback):
 
         self._last_step = 0   # internal counter
 
-    def _make_gen_fn(self, pl_module: "BitImageDiffusionTrainer"):
-        import numpy as np
+        self._progress_bar = None
 
+    @contextmanager
+    def _fid_progress(self, enabled: bool = True):
+        if not enabled:
+            yield None
+            return
+
+        try:
+            from tqdm.auto import tqdm
+        except ImportError:
+            yield None
+            return
+
+        self._progress_bar = tqdm(
+            total=self.num_gen,
+            desc="FID sampling",
+            leave=False,
+            unit="img",
+        )
+
+        try:
+            yield self._progress_bar
+        finally:
+            self._progress_bar.close()
+            self._progress_bar = None
+
+    def _make_gen_fn(
+        self,
+        pl_module: "BitImageDiffusionTrainer",
+        progress_bar=None,
+    ):
         def gen(z):
             if isinstance(z, torch.Tensor):
                 b = z.shape[0]
@@ -51,10 +81,12 @@ class CleanFIDCallback(pl.Callback):
                 )  # [-1,1], [B,C,H,W]
 
                 imgs = (imgs.clamp(-1, 1) + 1) / 2        # [0,1]
-                imgs = (imgs * 255).round().to(torch.uint8)
-                imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()  # [B,H,W,C]
+                imgs = imgs.clamp(0, 1)
 
-            return imgs.astype(np.uint8)
+            if progress_bar is not None:
+                progress_bar.update(b)
+
+            return imgs
 
         return gen
 
@@ -81,20 +113,22 @@ class CleanFIDCallback(pl.Callback):
 
         from cleanfid import fid
 
-        gen_fn = self._make_gen_fn(pl_module)
-
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        score = fid.compute_fid(
-            gen=gen_fn,
-            dataset_name=self.dataset_name,
-            dataset_res=self.dataset_res,
-            dataset_split=self.dataset_split,
-            mode=self.mode,
-            num_gen=self.num_gen,
-            batch_size=self.batch_size,
-            device=device,
-        )
+        with self._fid_progress(enabled=trainer.is_global_zero) as progress:
+            gen_fn = self._make_gen_fn(pl_module, progress)
+
+            score = fid.compute_fid(
+                gen=gen_fn,
+                dataset_name=self.dataset_name,
+                dataset_res=self.dataset_res,
+                dataset_split=self.dataset_split,
+                mode=self.mode,
+                num_gen=self.num_gen,
+                batch_size=self.batch_size,
+                device=device,
+                verbose=False,
+            )
 
         pl_module.log(
             "train/FID_clean",

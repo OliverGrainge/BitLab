@@ -11,29 +11,29 @@ accelerator: "auto"
 devices: "auto"
 precision: "bf16-mixed"
 grad_clip_val: 1.0
-accumulate_grad_batches: 2  # Effective batch size = 256 * 2 = 512
-log_every_n_steps: 5  # Align callback cadence with validation frequency
+accumulate_grad_batches: 4  # Effective batch size = 256 * 2 = 512
+log_every_n_steps: 1000           # images, grads, etc.
 validate_every_n_steps: 5000
 
 # Data settings
-train_batch_size: 4  # Increased - reduce if OOM
-val_batch_size: 4
-num_workers: 0  # Adjusted for better data loading
+train_batch_size: 64  # Increased - reduce if OOM
+val_batch_size: 64
+num_workers: 8
 val_split: 0.02
 seed: 42
 
 # Optimizer settings
 optimizer: "adamw"
 learning_rate: 0.0002  # Slightly higher for larger model
-weight_decay: 0.01  # Small weight decay for regularization
+weight_decay: 0.0  # Small weight decay for regularization
 adam_beta1: 0.9
 adam_beta2: 0.999
 adam_epsilon: 1.0e-8
 
 # Learning rate scheduler settings
 lr_scheduler: "cosine"  # Cosine annealing works better
-lr_warmup_steps: 10000  # Longer warmup for stability
-max_lr_steps: 1200000  # Match max_steps
+lr_warmup_steps: 5000  # Longer warmup for stability
+max_lr_steps: 800000 
 
 # Diffusion settings
 beta_schedule: "cosine"  # Better for image generation
@@ -48,8 +48,9 @@ use_ema: true
 ema_decay: 0.9999
 
 # Sampling settings
-num_sample_steps: 50  # Standard for FID evaluation with DDIM
+num_sample_steps: 100  # Standard for FID evaluation with DDIM
 num_samples: 16
+
 
 # Logging settings
 image_sample_num_images: 16
@@ -58,20 +59,20 @@ image_sample_log_key: "train/image_grid"
 image_sample_use_ema: true
 fid_dataset_name: "cifar10"
 fid_dataset_res: 32
-fid_dataset_split: "train"
+fid_dataset_split: "test"
 fid_mode: "clean"
-fid_num_gen: 1000
-fid_batch_size: 32
+fid_num_gen: 50000
+fid_batch_size: 64
 
 # Model architecture settings - Scaled up for better quality
 model:
   image_size: 32
   in_channels: 3
   out_channels: 3
-  model_channels: 256  # Doubled from 128
-  attention_resolutions: [4, 2]  # Added attention at 8x8
-  num_heads: 8  # Doubled from 4
-  num_res_blocks: 3  # Increased from 2
-  channel_mult: [1, 2, 2, 2]  # Keep same multipliers
+  model_channels: 192
+  attention_resolutions: [4, 2]
+  num_heads: 6
+  num_res_blocks: 3
+  channel_mult: [1, 2, 2, 2]
   dropout: 0.1
-  quant_type: "none"  # Consider "none" for baseline
+  quant_type: "none"
