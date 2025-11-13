@@ -1,0 +1,3 @@
+Config: /home/oliver/github/BitLab/examples/training/imagegeneration/unet/cifar10/runs/config/config.yaml
+Checkpoint: /home/oliver/github/BitLab/examples/training/imagegeneration/unet/cifar10/checkpoints/config/config.ckpt
+FID Score: 58.37

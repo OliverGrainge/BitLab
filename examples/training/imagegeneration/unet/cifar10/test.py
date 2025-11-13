@@ -1,62 +1,51 @@
-"""
-Sample from a trained BitDDPM model and compute the FID score on CIFAR-10.
-
-Example
--------
-python test.py config.yaml
-"""
+"""Evaluation script for BitUNet diffusion model - computes FID score."""
 
 from __future__ import annotations
 
-import argparse
-import shutil
 import sys
-import tempfile
-from datetime import datetime
 from pathlib import Path
-from typing import Tuple
 
 import torch
 import yaml
-
-try:
-    from cleanfid import fid as cleanfid
-except ImportError as exc:
-    raise ImportError(
-        "CleanFID is required. Install it with `pip install cleanfid`."
-    ) from exc
-
-from bitlab.bitmodels import BitUNetConfig, BitUNetModel
-from bitlab.bittrainer import BitImageDiffusionTrainer
-from PIL import Image
-from tqdm.auto import tqdm
+from bitlab.bitmodels.imagegeneration import BitUNetConfig, BitUNetModel
+from bitlab.bittrainer.imagegeneration import BitImageGenerationTrainer
+from torchvision.utils import save_image
+from tqdm import tqdm
 
 from datamodule import CIFAR10DataModule
 
 
-def get_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if (
-        getattr(torch.backends, "mps", None) is not None
-        and torch.backends.mps.is_available()
-    ):
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
 def load_config(config_path: Path) -> dict:
-    with config_path.open("r") as fp:
-        return yaml.safe_load(fp)
+    """Load YAML configuration file."""
+    with open(config_path) as f:
+        return yaml.safe_load(f)
 
 
-def build_diffusion_module(
-    config: dict,
-) -> Tuple[BitImageDiffusionTrainer, BitUNetConfig]:
-    quant_type = config["model"].get(
-        "quant_type", BitUNetConfig.model_fields["quant_type"].default
-    )
-    model_cfg = BitUNetConfig(
+def find_checkpoint(config_path: Path) -> Path | None:
+    """Find checkpoint file based on config name.
+    
+    Searches in: ./checkpoints/{config_name}/{config_name}.ckpt
+    Falls back to first .ckpt file found in directory.
+    """
+    config_name = config_path.stem
+    checkpoint_dir = Path.cwd() / "checkpoints" / config_name
+    
+    if not checkpoint_dir.exists():
+        return None
+    
+    # Try exact match first
+    checkpoint_path = checkpoint_dir / f"{config_name}.ckpt"
+    if checkpoint_path.exists():
+        return checkpoint_path
+    
+    # Fall back to any .ckpt file
+    ckpt_files = list(checkpoint_dir.glob("*.ckpt"))
+    return ckpt_files[0] if ckpt_files else None
+
+
+def load_model(config: dict, checkpoint_path: Path) -> BitImageGenerationTrainer:
+    """Load model from checkpoint with configuration."""
+    model_config = BitUNetConfig(
         image_size=config["model"]["image_size"],
         in_channels=config["model"]["in_channels"],
         out_channels=config["model"]["out_channels"],
@@ -66,295 +55,235 @@ def build_diffusion_module(
         num_res_blocks=config["model"]["num_res_blocks"],
         channel_mult=tuple(config["model"]["channel_mult"]),
         dropout=config["model"]["dropout"],
-        quant_type=quant_type,
+        quant_type=config["model"]["quant_type"],
     )
 
-    model = BitUNetModel(model_cfg)
-
-    diffusion_module = BitImageDiffusionTrainer(
-        model=model,
-        image_size=model_cfg.image_size,
-        in_channels=model_cfg.in_channels,
-        learning_rate=config["learning_rate"],
-        weight_decay=config["weight_decay"],
-        optimizer=config["optimizer"],
-        num_timesteps=config["num_timesteps"],
-        beta_schedule=config["beta_schedule"],
-        loss_type=config["loss_type"],
-        prediction_type=config["prediction_type"],
-        use_ema=config["use_ema"],
-        num_sample_steps=config["num_sample_steps"],
-        sample_every_n_steps=config["sample_every_n_steps"],
-        num_samples=config["num_samples"],
+    model = BitUNetModel(
+        model_config,
+        image_size=model_config.image_size,
+        in_channels=model_config.in_channels,
+        num_timesteps=config["diffusion"]["num_timesteps"],
+        beta_schedule=config["diffusion"]["beta_schedule"],
+        beta_start=config["diffusion"]["beta_start"],
+        beta_end=config["diffusion"]["beta_end"],
+        prediction_type=config["diffusion"]["prediction_type"],
+        default_num_steps=config["sampling"]["num_sample_steps"],
+    )
+    
+    return BitImageGenerationTrainer.load_from_checkpoint(
+        checkpoint_path, model=model, map_location="cpu"
     )
 
-    return diffusion_module, model_cfg
+
+def normalize_images(images: torch.Tensor) -> torch.Tensor:
+    """Normalize images to [0, 1] range."""
+    if images.min() < 0:
+        images = (images + 1) / 2
+    return torch.clamp(images, 0, 1)
 
 
-def load_checkpoint(
-    module: BitImageDiffusionTrainer, checkpoint_path: Path, device: torch.device
-) -> None:
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    if "state_dict" not in checkpoint:
-        raise KeyError(
-            f"Checkpoint at '{checkpoint_path}' does not contain a 'state_dict' entry."
-        )
-
-    module.load_state_dict(checkpoint["state_dict"])
-
-    ema_state = checkpoint.get("ema_state_dict")
-    if ema_state is not None and module.use_ema and module.ema_model is not None:
-        module.ema_model.load_state_dict(ema_state)
-    elif module.use_ema and module.ema_model is not None:
-        print(
-            "Warning: EMA state missing from checkpoint; using non-EMA weights for sampling."
-        )
+def save_sample_images(images: torch.Tensor, save_dir: Path, prefix: str, start_idx: int) -> None:
+    """Save individual images to disk."""
+    for idx, img in enumerate(images.detach().cpu(), start=start_idx):
+        save_image(img, save_dir / f"{prefix}_{idx:02d}.png")
 
 
-def normalise_to_unit_interval(images: torch.Tensor) -> torch.Tensor:
-    # Inputs expected in [-1, 1]; convert to [0, 1]
-    images = (images + 1.0) / 2.0
-    return torch.clamp(images, 0.0, 1.0)
-
-
-def to_uint8(images: torch.Tensor) -> torch.Tensor:
-    images = normalise_to_unit_interval(images)
-    images = images.mul(255.0).add(0.5).clamp(0.0, 255.0)
-    return images.to(torch.uint8)
-
-
-def save_images_to_directory(
-    images: torch.Tensor,
-    destination: Path,
-    start_index: int,
-) -> tuple[int, int, Path | None]:
-    uint8_images = to_uint8(images.detach().cpu()).permute(0, 2, 3, 1).contiguous()
-    arrays = uint8_images.numpy()
-
-    first_path: Path | None = None
-
-    for offset, array in enumerate(arrays):
-        image = Image.fromarray(array)
-        path = destination / f"{start_index + offset:06d}.png"
-        image.save(path)
-        if first_path is None:
-            first_path = path
-
-    saved = arrays.shape[0]
-    return start_index + saved, saved, first_path
-
-
-def export_real_images(
-    datamodule: CIFAR10DataModule,
+def process_real_images(
+    dataloader,
+    fid_metric,
     num_samples: int,
-    destination: Path,
-) -> int:
-    datamodule.prepare_data()
-    datamodule.setup(stage="val")
+    device: str,
+    save_dir: Path | None = None,
+    samples_to_save: int = 10,
+) -> None:
+    """Process real images and update FID metric."""
+    num_processed = 0
+    num_saved = 0
+    
+    for batch in tqdm(dataloader, desc="Processing real images"):
+        if num_processed >= num_samples:
+            break
+        
+        images = batch.to(device)
+        images = normalize_images(images)
+        
+        # Limit to num_samples
+        remaining = num_samples - num_processed
+        if images.shape[0] > remaining:
+            images = images[:remaining]
+        
+        # Save examples
+        if save_dir and num_saved < samples_to_save:
+            to_save = min(images.shape[0], samples_to_save - num_saved)
+            save_sample_images(images[:to_save], save_dir, "real", num_saved + 1)
+            num_saved += to_save
+        
+        # Update FID metric
+        images_uint8 = (images * 255).to(torch.uint8)
+        fid_metric.update(images_uint8, real=True)
+        num_processed += images.shape[0]
 
-    dataloader = datamodule.val_dataloader()
-    collected = 0
 
-    with tqdm(total=num_samples, desc="Collecting real images", unit="img") as progress:
-        for batch in dataloader:
-            remaining = num_samples - collected
-            if remaining <= 0:
-                break
-
-            images = batch[:remaining]
-            collected, saved, _ = save_images_to_directory(
-                images, destination, collected
-            )
-            progress.update(saved)
-
-    return collected
-
-
-def export_generated_images(
-    module: BitImageDiffusionTrainer,
+def generate_fake_images(
+    model,
+    fid_metric,
     num_samples: int,
     batch_size: int,
-    num_steps: int | None,
-    use_ema: bool | None,
-    destination: Path,
-    preview_path: Path | None = None,
-) -> Path | None:
-    module.eval()
-
-    generated = 0
-    first_saved: Path | None = None
-    with tqdm(total=num_samples, desc="Generating samples", unit="img") as progress:
-        while generated < num_samples:
-            current_batch = min(batch_size, num_samples - generated)
-            with torch.no_grad():
-                samples = module.sample_ddim(
-                    batch_size=current_batch,
-                    num_steps=num_steps,
-                    use_ema=use_ema,
-                )
-
-            generated, saved, batch_first = save_images_to_directory(
-                samples, destination, generated
+    save_dir: Path | None = None,
+    samples_to_save: int = 10,
+) -> None:
+    """Generate fake images and update FID metric."""
+    num_generated = 0
+    num_saved = 0
+    num_batches = (num_samples + batch_size - 1) // batch_size
+    
+    with torch.no_grad():
+        for _ in tqdm(range(num_batches), desc="Generating fake images"):
+            current_batch_size = min(batch_size, num_samples - num_generated)
+            
+            images = model.generate_samples(
+                batch_size=current_batch_size,
+                use_ema=True,
             )
-            if first_saved is None and batch_first is not None:
-                first_saved = batch_first
-            progress.update(saved)
-
-    if preview_path is not None and first_saved is not None:
-        preview_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(first_saved, preview_path)
-
-    return first_saved
-
-
-def infer_checkpoint_path(config_path: Path) -> Path:
-    config_name = config_path.stem
-    candidates = [
-        Path.cwd(),
-        config_path.resolve().parent,
-        Path(__file__).resolve().parent,
-    ]
-    for base in candidates:
-        candidate = base / "checkpoints" / config_name / f"{config_name}.ckpt"
-        if candidate.exists():
-            return candidate
-    return Path.cwd() / "checkpoints" / config_name / f"{config_name}.ckpt"
+            images = normalize_images(images)
+            
+            # Save examples
+            if save_dir and num_saved < samples_to_save:
+                to_save = min(images.shape[0], samples_to_save - num_saved)
+                save_sample_images(images[:to_save], save_dir, "generated", num_saved + 1)
+                num_saved += to_save
+            
+            # Update FID metric
+            images_uint8 = (images * 255).to(torch.uint8)
+            fid_metric.update(images_uint8, real=False)
+            num_generated += current_batch_size
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Compute FID for BitDDPM CIFAR-10 model."
-    )
-    parser.add_argument(
-        "config", type=Path, help="Path to the YAML configuration used for training."
-    )
-    parser.add_argument(
-        "--checkpoint",
-        type=Path,
-        default=None,
-        help="Path to the PyTorch Lightning checkpoint (.ckpt). Defaults to checkpoints/<config>/<config>.ckpt.",
-    )
-
-    parser.add_argument(
-        "--num-samples",
-        type=int,
-        default=5000,
-        help="Number of samples to use when estimating FID.",
-    )
-    parser.add_argument(
-        "--gen-batch-size",
-        type=int,
-        default=256,
-        help="Batch size for diffusion sampling.",
-    )
-    parser.add_argument(
-        "--sample-steps",
-        type=int,
-        default=None,
-        help="Override the number of DDIM sampling steps (defaults to config).",
-    )
-    parser.add_argument(
-        "--no-ema",
-        action="store_true",
-        help="Disable EMA weights during sampling.",
-    )
-    parser.add_argument(
-        "--cleanfid-batch-size",
-        type=int,
-        default=256,
-        help="Batch size used by CleanFID when extracting features.",
-    )
-    parser.add_argument(
-        "--cleanfid-workers",
-        type=int,
-        default=0,
-        help="Number of worker processes CleanFID should use when reading images.",
-    )
-
-    return parser.parse_args(argv)
+def compute_fid_score(
+    model: BitImageGenerationTrainer,
+    datamodule: CIFAR10DataModule,
+    num_samples: int = 10000,
+    batch_size: int = 100,
+    device: str = "cuda",
+    save_dir: Path | None = None,
+    samples_to_save: int = 10,
+) -> float:
+    """Compute FID score between generated and real images."""
+    try:
+        from torchmetrics.image.fid import FrechetInceptionDistance
+    except ImportError:
+        print("Error: torchmetrics is required for FID computation.")
+        print("Install with: pip install torchmetrics")
+        sys.exit(1)
+    
+    print(f"\n{'=' * 60}")
+    print("Computing FID Score")
+    print(f"{'=' * 60}")
+    print(f"Samples: {num_samples} | Batch size: {batch_size} | Device: {device}\n")
+    
+    # Initialize
+    fid = FrechetInceptionDistance(normalize=True).to(device)
+    model = model.to(device).eval()
+    
+    # Process real images
+    datamodule.setup(stage="test")
+    real_loader = datamodule.val_dataloader()
+    process_real_images(real_loader, fid, num_samples, device, save_dir, samples_to_save)
+    
+    # Generate fake images
+    generate_fake_images(model, fid, num_samples, batch_size, save_dir, samples_to_save)
+    
+    # Compute FID
+    print("\nComputing FID score...")
+    fid_score = float(fid.compute())
+    
+    print(f"\n{'=' * 60}")
+    print(f"FID Score: {fid_score:.2f}")
+    print(f"{'=' * 60}\n")
+    
+    return fid_score
 
 
-def main(argv: list[str]) -> int:
-    args = parse_args(argv)
+def save_results(config_path: Path, checkpoint_path: Path, fid_score: float) -> None:
+    """Save evaluation results to file."""
+    results_dir = config_path.parent
+    results_dir.mkdir(parents=True, exist_ok=True)
+    results_file = results_dir / f"{config_path.stem}_fid.txt"
+    
+    with open(results_file, "w") as f:
+        f.write(f"Config: {config_path}\n")
+        f.write(f"Checkpoint: {checkpoint_path}\n")
+        f.write(f"FID Score: {fid_score:.2f}\n")
+    
+    print(f"Results saved to: {results_file}")
 
+
+def main(config_path: str) -> None:
+    """Main evaluation function."""
     torch.set_float32_matmul_precision("medium")
-    device = get_device()
-
-    if not args.config.exists():
-        raise FileNotFoundError(f"Config file not found: {args.config}")
-
-    checkpoint_path = args.checkpoint or infer_checkpoint_path(args.config)
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
-    config = load_config(args.config)
-
+    
+    # Load configuration
+    config_path = Path(config_path).expanduser().resolve()
+    config = load_config(config_path)
+    
+    print(f"\n{'=' * 60}")
+    print("BitUNet Diffusion Model Evaluation")
+    print(f"{'=' * 60}")
+    print(f"Config: {config_path.name}")
+    print(f"Run: {config['experiment']['run_name']}")
+    
+    # Find checkpoint
+    checkpoint_path = find_checkpoint(config_path)
+    if checkpoint_path is None:
+        print(f"\nError: No checkpoint found for '{config_path.stem}'")
+        print(f"Expected location: ./checkpoints/{config_path.stem}/")
+        sys.exit(1)
+    
+    print(f"Checkpoint: {checkpoint_path.name}")
+    print(f"{'=' * 60}\n")
+    
+    # Setup data
     datamodule = CIFAR10DataModule(
-        train_batch_size=config["train_batch_size"],
-        val_batch_size=config["val_batch_size"],
-        num_workers=config["num_workers"],
-        val_split=config["val_split"],
+        train_batch_size=config["data"]["train_batch_size"],
+        val_batch_size=config["data"]["val_batch_size"],
+        num_workers=config["data"]["num_workers"],
+        val_split=config["data"]["val_split"],
         seed=config["seed"],
     )
-
-    diffusion_module, _ = build_diffusion_module(config)
-    diffusion_module.to(device)
-
-    load_checkpoint(diffusion_module, checkpoint_path, device=device)
-
-    target_samples = args.num_samples
-
-    with tempfile.TemporaryDirectory() as real_dir_name, tempfile.TemporaryDirectory() as gen_dir_name:
-        real_dir = Path(real_dir_name)
-        gen_dir = Path(gen_dir_name)
-
-        real_samples = export_real_images(datamodule, target_samples, real_dir)
-        if real_samples < target_samples:
-            print(
-                f"Warning: Requested {target_samples} real samples but only gathered {real_samples}."
-            )
-            target_samples = real_samples
-
-        run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-        preview_sample_path = (
-            Path(__file__).resolve().parent
-            / "logs"
-            / "images"
-            / run_id
-            / "sample-000000.png"
-        )
-
-        export_generated_images(
-            diffusion_module,
-            target_samples,
-            args.gen_batch_size,
-            args.sample_steps,
-            None if not args.no_ema else False,
-            gen_dir,
-            preview_path=preview_sample_path,
-        )
-
-        fid_score = cleanfid.compute_fid(
-            str(real_dir),
-            str(gen_dir),
-            batch_size=args.cleanfid_batch_size,
-            device=str(device),
-            num_workers=args.cleanfid_workers,
-        )
-
-    title = f"Results for {args.config}"
-    separator = "-" * len(title)
-    print(f"\n{title}\n{separator}")
-    print(f"Checkpoint       : {checkpoint_path}")
-    print(f"Samples evaluated: {target_samples}")
-    print(f"FID score        : {fid_score:.4f}")
-    if preview_sample_path.exists():
-        print(f"Preview sample   : {preview_sample_path}")
-    print()
-
-    return 0
+    datamodule.prepare_data()
+    
+    # Load model
+    print("Loading model...")
+    model = load_model(config, checkpoint_path)
+    print("Model loaded!\n")
+    
+    # Setup device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cpu":
+        print("Warning: Using CPU (this will be slow)\n")
+    
+    # Compute FID
+    samples_dir = config_path.parent / "samples"
+    samples_dir.mkdir(exist_ok=True)
+    
+    fid_score = compute_fid_score(
+        model=model,
+        datamodule=datamodule,
+        num_samples=1000,
+        batch_size=100,
+        device=device,
+        save_dir=samples_dir,
+        samples_to_save=10,
+    )
+    
+    # Save results
+    save_results(config_path, checkpoint_path, fid_score)
+    print(f"Sample images saved to: {samples_dir}")
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    if len(sys.argv) < 2:
+        print("Usage: python test.py <config.yaml>")
+        sys.exit(1)
+    
+    main(sys.argv[1])
