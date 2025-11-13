@@ -75,7 +75,7 @@ class BitConvBlock(nn.Module):
         super().__init__()
         self.apply_norm = apply_norm
         # Import BitConv2d lazily
-        from bitlab.bnn.bitlayers import BitConv2d
+        from bitcore.bnn.bitlayers import BitConv2d
 
         if apply_norm:
             self.norm = RMSNorm(in_channels)

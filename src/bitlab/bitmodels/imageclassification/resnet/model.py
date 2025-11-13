@@ -12,7 +12,7 @@ from bitlab.bitmodels.base import BaseBitModel
 from bitlab.bitmodels.imageclassification.resnet.config import \
     BitResNetConfig
 from bitlab.bitmodels.mixins import ImageClassificationMixin
-from bitlab.bnn.bitlayers import BitConv2d
+from bitcore.bnn.bitlayers import BitConv2d
 
 
 class BasicBlock(nn.Module):

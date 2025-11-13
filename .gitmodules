@@ -1,0 +1,4 @@
+[submodule "external/bit-core"]
+	path = external/bit-core
+	url = git@github.com:OliverGrainge/BitCore.git
+	branch = main

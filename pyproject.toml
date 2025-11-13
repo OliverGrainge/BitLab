@@ -30,6 +30,7 @@ dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
     "numpy>=1.21.0",
+    "bitcore @ git+https://github.com/OliverGrainge/BitCore.git",
 ]
 
 [project.optional-dependencies]

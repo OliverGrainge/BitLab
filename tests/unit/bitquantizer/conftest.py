@@ -8,9 +8,11 @@ from typing import Tuple
 import pytest
 import torch
 
-from bitlab.bitquantizer.registry import (ACT_QUANT_REGISTRY,
-                                          QUANTIZER_REGISTRY,
-                                          WEIGHT_QUANT_REGISTRY)
+from bitcore.bnn.bitquantizer.registry import (
+    ACT_QUANT_REGISTRY,
+    QUANTIZER_REGISTRY,
+    WEIGHT_QUANT_REGISTRY,
+)
 
 Tensor = torch.Tensor
 

@@ -16,12 +16,15 @@ A PyTorch library for binary neural networks with efficient quantization and dep
 ```bash
 git clone https://github.com/yourusername/BitLab.git
 cd BitLab
+git submodule update --init --recursive
+pip install -e external/bit-core
 pip install -e .
 ```
 
 ### Development Installation
 
 ```bash
+pip install -e "external/bit-core[dev]"
 pip install -e ".[dev]"
 ```
 
@@ -29,8 +32,8 @@ pip install -e ".[dev]"
 
 ```python
 import torch
-import bitlab.bnn as bnn
-from bitlab.bnn import BitLinear, Module
+import bitcore.bnn as bnn
+from bitcore.bnn import BitLinear, Module
 
 # Create a binary neural network
 class SimpleBNN(Module):
@@ -84,8 +87,8 @@ After installation, you can verify everything works:
 
 ```python
 import bitlab
-import bitlab.bnn
-import bitlab.bitquantizer
+import bitcore.bnn
+import bitcore.bnn.bitquantizer
 print(f"BitLab version: {bitlab.__version__}")
 ```
 
@@ -104,7 +107,7 @@ layer = BitLinear(in_features=784, out_features=256, bias=True)
 Handles weight quantization with gradient flow during training.
 
 ```python
-from bitlab.bitquantizer import BitQuantizer
+from bitcore.bnn.bitquantizer import BitQuantizer
 
 quantizer = BitQuantizer(eps=1e-6)
 ```

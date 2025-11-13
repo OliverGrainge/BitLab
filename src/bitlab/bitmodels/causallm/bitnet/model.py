@@ -10,7 +10,7 @@ from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.base import BaseBitModel
 from bitlab.bitmodels.causallm.bitnet.config import BitNetConfig
 from bitlab.bitmodels.mixins import CausalLMMixin
-from bitlab.bnn.bitlayers import BitLinear
+from bitcore.bnn.bitlayers import BitLinear
 
 
 def _resolve_head_dim(config: BitNetConfig) -> int:

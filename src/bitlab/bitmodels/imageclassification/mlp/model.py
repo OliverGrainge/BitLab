@@ -6,12 +6,12 @@ from typing import Any, ClassVar, Iterable, Optional
 import torch
 import torch.nn as nn
 
-import bitlab.bnn as bnn
+import bitcore.bnn as bnn
 from bitlab.bitmodels.auto import register_bitmodel
 from bitlab.bitmodels.base import BaseBitModel
 from bitlab.bitmodels.imageclassification.mlp.config import BitMLPConfig
 from bitlab.bitmodels.mixins import ImageClassificationMixin
-from bitlab.bnn.bitlayers import BitLinear
+from bitcore.bnn.bitlayers import BitLinear
 
 
 class BitMLP(nn.Module):
