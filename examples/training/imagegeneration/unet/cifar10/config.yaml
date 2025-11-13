@@ -10,14 +10,14 @@ experiment:
 # Trainer
 # =========================
 trainer:
-  max_steps: 350000          # Fewer steps; still plenty of images for CIFAR-10
+  max_steps: 150000          # Fewer steps; still plenty of images for CIFAR-10
   accelerator: "auto"
   devices: "auto"
   precision: "bf16-mixed"
   grad_clip_val: 1.0
   accumulate_grad_batches: 1  # One forward/backward per step; effective batch = 64
-  log_every_n_steps: 1000
-  validate_every_n_steps: 5000
+  log_every_n_steps: 50
+  validate_every_n_steps: 10000
 
 # =========================
 # Data
@@ -45,7 +45,7 @@ optimizer:
 scheduler:
   name: "cosine"              # "constant", "linear", or "cosine"
   warmup_steps: 5000
-  max_steps: 350000           # Match trainer.max_steps
+  max_steps: 150000           # Match trainer.max_steps
 
 # =========================
 # Diffusion
