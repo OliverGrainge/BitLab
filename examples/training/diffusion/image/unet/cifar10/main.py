@@ -73,32 +73,30 @@ def main(config_path: str) -> None:
         quant_type=quant_type,
     )
 
-    model = BitUNetModel(model_config)
-
-    diffusion_module = BitImageDiffusionTrainer(
-        model=model,
+    model = BitUNetModel(
+        model_config,
         image_size=model_config.image_size,
         in_channels=model_config.in_channels,
-        # Diffusion parameters
         num_timesteps=config["num_timesteps"],
         beta_schedule=config["beta_schedule"],
         beta_start=config["beta_start"],
         beta_end=config["beta_end"],
-        # Loss configuration
-        loss_type=config["loss_type"],
         prediction_type=config["prediction_type"],
-        # Training parameters
+        default_num_steps=config["num_sample_steps"],
+    )
+
+    diffusion_module = BitImageDiffusionTrainer(
+        model=model,
+        loss_type=config["loss_type"],
         learning_rate=float(config["learning_rate"]),
         lr_warmup_steps=config["lr_warmup_steps"],
         lr_scheduler=config["lr_scheduler"],
         max_lr_steps=config["max_lr_steps"],
         use_ema=config["use_ema"],
         ema_decay=config["ema_decay"],
-        # Sampling parameters
         num_sample_steps=config["num_sample_steps"],
-        sample_every_n_steps=config["sample_every_n_steps"],
         num_samples=config["num_samples"],
-        # Optimizer parameters
+        sample_log_every_n_epochs=config["sample_log_every_n_epochs"],
         optimizer=config["optimizer"],
         weight_decay=float(config["weight_decay"]),
         adam_beta1=float(config["adam_beta1"]),

@@ -437,13 +437,101 @@ class BitUNetModel(ImageGenerationMixin, BaseBitModel):
         self,
         config: Optional[BitUNetConfig] = None,
         quant_type: Optional[str] = None,
+        *,
+        image_size: Optional[int] = None,
+        in_channels: Optional[int] = None,
+        num_timesteps: Optional[int] = None,
+        beta_schedule: Optional[str] = None,
+        beta_start: Optional[float] = None,
+        beta_end: Optional[float] = None,
+        prediction_type: Optional[str] = None,
+        default_num_steps: Optional[int] = None,
+        default_eta: Optional[float] = None,
         **overrides: Any,
     ):
-        updates: dict[str, Any] = dict(overrides)
+        overrides = dict(overrides)
         if quant_type is not None:
-            updates.setdefault("quant_type", quant_type)
+            overrides.setdefault("quant_type", quant_type)
 
-        super().__init__(config=config, **updates)
+        config_ref = config if isinstance(config, BitUNetConfig) else None
+
+        default_image_size = BitUNetConfig.model_fields["image_size"].default
+        default_in_channels = BitUNetConfig.model_fields["in_channels"].default
+
+        override_image_size = overrides.pop("image_size", None)
+        override_in_channels = overrides.pop("in_channels", None)
+
+        resolved_image_size = (
+            image_size
+            if image_size is not None
+            else override_image_size
+            if override_image_size is not None
+            else getattr(config_ref, "image_size", default_image_size)
+        )
+        resolved_in_channels = (
+            in_channels
+            if in_channels is not None
+            else override_in_channels
+            if override_in_channels is not None
+            else getattr(config_ref, "in_channels", default_in_channels)
+        )
+
+        resolved_num_timesteps = (
+            num_timesteps
+            if num_timesteps is not None
+            else overrides.pop("num_timesteps", None)
+            or 1000
+        )
+        resolved_beta_schedule = (
+            beta_schedule
+            if beta_schedule is not None
+            else overrides.pop("beta_schedule", None)
+            or "linear"
+        )
+        resolved_beta_start = (
+            beta_start
+            if beta_start is not None
+            else overrides.pop("beta_start", None)
+            or 0.0001
+        )
+        resolved_beta_end = (
+            beta_end
+            if beta_end is not None
+            else overrides.pop("beta_end", None)
+            or 0.02
+        )
+        resolved_prediction_type = (
+            prediction_type
+            if prediction_type is not None
+            else overrides.pop("prediction_type", None)
+            or "epsilon"
+        )
+        resolved_default_num_steps = (
+            default_num_steps
+            if default_num_steps is not None
+            else overrides.pop("default_num_steps", None)
+            or 100
+        )
+        resolved_default_eta = (
+            default_eta
+            if default_eta is not None
+            else overrides.pop("default_eta", None)
+            or 0.0
+        )
+
+        super().__init__(
+            config=config,
+            image_size=resolved_image_size,
+            in_channels=resolved_in_channels,
+            num_timesteps=resolved_num_timesteps,
+            beta_schedule=resolved_beta_schedule,
+            beta_start=resolved_beta_start,
+            beta_end=resolved_beta_end,
+            prediction_type=resolved_prediction_type,
+            default_num_steps=resolved_default_num_steps,
+            default_eta=resolved_default_eta,
+            **overrides,
+        )
 
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
         return self.model(x, timesteps)

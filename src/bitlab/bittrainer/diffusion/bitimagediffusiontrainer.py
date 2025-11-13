@@ -1,8 +1,8 @@
 """
 PyTorch Lightning Trainer for Unconditional Diffusion Models
 
-This trainer implements DDPM (Denoising Diffusion Probabilistic Models) training
-with support for various noise schedules, loss types, and sampling strategies.
+This trainer now delegates all image generation to the model's ImageGenerationMixin,
+resulting in a much simpler and cleaner implementation.
 """
 
 import math
@@ -13,9 +13,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from bitlab.bittrainer.callbacks import (DiffusionSampleLogger,
-                                         GradientNormLogger,
-                                         WeightHistogramLogger)
+from bitlab.bittrainer.callbacks import (
+    DiffusionSampleLogger,
+    GradientNormLogger,
+    WeightHistogramLogger,
+)
 
 
 class EMAModel:
@@ -95,73 +97,20 @@ class EMAModel:
         self.backup = {}
 
 
-def get_beta_schedule(
-    schedule: str,
-    num_timesteps: int,
-    beta_start: float = 0.0001,
-    beta_end: float = 0.02,
-) -> torch.Tensor:
-    """
-    Get beta schedule for diffusion process.
-
-    Args:
-        schedule: Type of schedule ("linear", "cosine", "quadratic")
-        num_timesteps: Number of diffusion timesteps
-        beta_start: Starting beta value
-        beta_end: Ending beta value
-
-    Returns:
-        Beta values for each timestep
-
-    Raises:
-        ValueError: If schedule type is unknown
-    """
-    if schedule == "linear":
-        return torch.linspace(beta_start, beta_end, num_timesteps)
-
-    elif schedule == "cosine":
-        # Cosine schedule from "Improved Denoising Diffusion Probabilistic Models"
-        steps = num_timesteps + 1
-        s = 0.008  # Small offset to prevent beta from being too small near t=0
-        x = torch.linspace(0, num_timesteps, steps)
-        alphas_cumprod = (
-            torch.cos(((x / num_timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
-        )
-        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-        return torch.clip(betas, 0.0001, 0.9999)
-
-    elif schedule == "quadratic":
-        return torch.linspace(beta_start**0.5, beta_end**0.5, num_timesteps) ** 2
-
-    else:
-        raise ValueError(f"Unknown beta schedule: {schedule}")
-
-
 class BitImageDiffusionTrainer(pl.LightningModule):
     """
-    PyTorch Lightning trainer for unconditional diffusion models.
+    Simplified PyTorch Lightning trainer for unconditional diffusion models.
 
-    Implements DDPM training with support for:
-    - Multiple noise schedules (linear, cosine, quadratic)
-    - Different prediction types (epsilon, x0, v-prediction)
-    - EMA model tracking
-    - DDIM sampling for fast inference
+    This trainer delegates all image generation and sampling logic to the model's
+    ImageGenerationMixin, resulting in cleaner separation of concerns.
+
+    The model must inherit from ImageGenerationMixin to work with this trainer.
 
     Args:
-        model: The denoising model (e.g., UNet)
-        image_size: Size of images for sampling
-        in_channels: Number of input channels (default: 3)
-
-        # Diffusion parameters
-        num_timesteps: Number of diffusion timesteps (default: 1000)
-        beta_schedule: Noise schedule type (default: "linear")
-        beta_start: Starting beta value (default: 0.0001)
-        beta_end: Ending beta value (default: 0.02)
+        model: The denoising model (must inherit from ImageGenerationMixin)
 
         # Loss configuration
         loss_type: Loss function - "l1", "l2", or "huber" (default: "l2")
-        prediction_type: What model predicts - "epsilon", "x0", or "v" (default: "epsilon")
 
         # Training parameters
         learning_rate: Learning rate (default: 1e-4)
@@ -173,10 +122,12 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         use_ema: Use exponential moving average (default: True)
         ema_decay: EMA decay rate (default: 0.9999)
 
-        # Sampling parameters
+        # Sampling parameters (for logging/validation)
         num_sample_steps: Number of DDIM sampling steps (default: 50)
-        sample_every_n_steps: Generate samples every N steps (default: 1000)
-        num_samples: Number of samples to generate (default: 16)
+        sample_method: Sampling method - "ddim" or "ddpm" (default: "ddim")
+        sample_eta: DDIM stochasticity (default: 0.0)
+        num_samples: Number of samples to generate for logging (default: 16)
+        sample_log_every_n_epochs: Log samples every N epochs (default: 1)
 
         # Optimizer parameters
         optimizer: Optimizer type - "adam" or "adamw" (default: "adamw")
@@ -189,16 +140,8 @@ class BitImageDiffusionTrainer(pl.LightningModule):
     def __init__(
         self,
         model: nn.Module,
-        image_size: int,
-        in_channels: int = 3,
-        # Diffusion parameters
-        num_timesteps: int = 1000,
-        beta_schedule: Literal["linear", "cosine", "quadratic"] = "linear",
-        beta_start: float = 0.0001,
-        beta_end: float = 0.02,
         # Loss configuration
         loss_type: Literal["l1", "l2", "huber"] = "l2",
-        prediction_type: Literal["epsilon", "x0", "v"] = "epsilon",
         # Training parameters
         learning_rate: float = 1e-4,
         lr_warmup_steps: int = 1000,
@@ -209,8 +152,10 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         ema_decay: float = 0.9999,
         # Sampling parameters
         num_sample_steps: int = 50,
-        sample_every_n_steps: int = 1000,
+        sample_method: Literal["ddim", "ddpm"] = "ddim",
+        sample_eta: float = 0.0,
         num_samples: int = 16,
+        sample_log_every_n_epochs: int = 1,
         # Optimizer parameters
         optimizer: Literal["adam", "adamw"] = "adamw",
         weight_decay: float = 0.0,
@@ -221,16 +166,19 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
 
+        if sample_log_every_n_epochs <= 0:
+            raise ValueError("sample_log_every_n_epochs must be positive.")
+
+        # Validate that model has generation capabilities
+        if not hasattr(model, "generate"):
+            raise ValueError(
+                "Model must inherit from ImageGenerationMixin to use this trainer. "
+                "The model should have a generate() method for image generation."
+            )
+
         # Store model and parameters
         self.model = model
-        self.image_size = image_size
-        self.in_channels = in_channels
-        self.num_timesteps = num_timesteps
-        self.beta_schedule = beta_schedule
-        self.beta_start = beta_start
-        self.beta_end = beta_end
         self.loss_type = loss_type
-        self.prediction_type = prediction_type
         self.learning_rate = learning_rate
         self.lr_warmup_steps = lr_warmup_steps
         self.lr_scheduler_type = lr_scheduler
@@ -238,8 +186,10 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         self.use_ema = use_ema
         self.ema_decay = ema_decay
         self.num_sample_steps = num_sample_steps
-        self.sample_every_n_steps = sample_every_n_steps
+        self.sample_method = sample_method
+        self.sample_eta = sample_eta
         self.num_samples = num_samples
+        self.sample_log_every_n_epochs = sample_log_every_n_epochs
         self.optimizer_type = optimizer
         self.weight_decay = weight_decay
         self.adam_beta1 = adam_beta1
@@ -249,180 +199,8 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         # Setup EMA
         self.ema_model = EMAModel(self.model, decay=ema_decay) if use_ema else None
 
-        # Setup diffusion schedule
-        self._setup_diffusion_schedule()
-
         # For consistent validation sampling
         self.validation_noise = None
-
-    def _setup_diffusion_schedule(self) -> None:
-        """Register diffusion schedule parameters as buffers."""
-        betas = get_beta_schedule(
-            self.beta_schedule, self.num_timesteps, self.beta_start, self.beta_end
-        )
-
-        # Calculate alpha values
-        alphas = 1.0 - betas
-        alphas_cumprod = torch.cumprod(alphas, dim=0)
-        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
-
-        # Register core schedule parameters
-        self.register_buffer("betas", betas)
-        self.register_buffer("alphas", alphas)
-        self.register_buffer("alphas_cumprod", alphas_cumprod)
-        self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
-
-        # Precalculated values for forward diffusion q(x_t | x_0)
-        self.register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
-        self.register_buffer(
-            "sqrt_one_minus_alphas_cumprod", torch.sqrt(1.0 - alphas_cumprod)
-        )
-        self.register_buffer(
-            "sqrt_recip_alphas_cumprod", torch.sqrt(1.0 / alphas_cumprod)
-        )
-        self.register_buffer(
-            "sqrt_recipm1_alphas_cumprod", torch.sqrt(1.0 / alphas_cumprod - 1)
-        )
-
-        # Precalculated values for posterior q(x_{t-1} | x_t, x_0)
-        posterior_variance = (
-            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
-        )
-        self.register_buffer("posterior_variance", posterior_variance)
-        self.register_buffer(
-            "posterior_log_variance_clipped",
-            torch.log(torch.clamp(posterior_variance, min=1e-20)),
-        )
-        self.register_buffer(
-            "posterior_mean_coef1",
-            betas * torch.sqrt(alphas_cumprod_prev) / (1.0 - alphas_cumprod),
-        )
-        self.register_buffer(
-            "posterior_mean_coef2",
-            (1.0 - alphas_cumprod_prev) * torch.sqrt(alphas) / (1.0 - alphas_cumprod),
-        )
-
-    def q_sample(
-        self, x_start: torch.Tensor, t: torch.Tensor, noise: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Forward diffusion: sample x_t from q(x_t | x_0).
-
-        Args:
-            x_start: Original images [B, C, H, W]
-            t: Timesteps [B]
-            noise: Gaussian noise [B, C, H, W]
-
-        Returns:
-            Noisy images at timestep t
-        """
-        # Extract coefficients for timestep t
-        sqrt_alphas_cumprod_t = self._extract(
-            self.sqrt_alphas_cumprod, t, x_start.shape
-        )
-        sqrt_one_minus_alphas_cumprod_t = self._extract(
-            self.sqrt_one_minus_alphas_cumprod, t, x_start.shape
-        )
-
-        return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
-
-    def _extract(
-        self, values: torch.Tensor, t: torch.Tensor, x_shape: torch.Size
-    ) -> torch.Tensor:
-        """
-        Extract values from a 1D tensor for a batch of indices.
-
-        Args:
-            values: 1D tensor of values
-            t: Batch of indices [B]
-            x_shape: Shape of tensor to extract for
-
-        Returns:
-            Extracted values reshaped for broadcasting
-        """
-        batch_size = t.shape[0]
-        out = values.gather(-1, t)
-        # Reshape to [batch_size, 1, 1, 1] for broadcasting
-        return out.reshape(batch_size, *((1,) * (len(x_shape) - 1)))
-
-    def compute_training_target(
-        self, x_start: torch.Tensor, noise: torch.Tensor, t: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Compute training target based on prediction type.
-
-        Args:
-            x_start: Original images [B, C, H, W]
-            noise: Gaussian noise [B, C, H, W]
-            t: Timesteps [B]
-
-        Returns:
-            Training target
-        """
-        if self.prediction_type == "epsilon":
-            return noise
-        elif self.prediction_type == "x0":
-            return x_start
-        elif self.prediction_type == "v":
-            # v-parameterization: v = sqrt(alpha_bar) * noise - sqrt(1 - alpha_bar) * x_start
-            sqrt_alphas_cumprod_t = self._extract(
-                self.sqrt_alphas_cumprod, t, x_start.shape
-            )
-            sqrt_one_minus_alphas_cumprod_t = self._extract(
-                self.sqrt_one_minus_alphas_cumprod, t, x_start.shape
-            )
-            return (
-                sqrt_alphas_cumprod_t * noise
-                - sqrt_one_minus_alphas_cumprod_t * x_start
-            )
-        else:
-            raise ValueError(f"Unknown prediction type: {self.prediction_type}")
-
-    def predict_x0_from_model_output(
-        self, x_t: torch.Tensor, t: torch.Tensor, model_output: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Convert model output to x0 prediction based on parameterization.
-
-        Args:
-            x_t: Noisy images at timestep t [B, C, H, W]
-            t: Timesteps [B]
-            model_output: Model prediction [B, C, H, W]
-
-        Returns:
-            Predicted x0
-        """
-        if self.prediction_type == "epsilon":
-            # x0 = (x_t - sqrt(1 - alpha_bar) * epsilon) / sqrt(alpha_bar)
-            sqrt_recip_alphas_cumprod_t = self._extract(
-                self.sqrt_recip_alphas_cumprod, t, x_t.shape
-            )
-            sqrt_recipm1_alphas_cumprod_t = self._extract(
-                self.sqrt_recipm1_alphas_cumprod, t, x_t.shape
-            )
-            return (
-                sqrt_recip_alphas_cumprod_t * x_t
-                - sqrt_recipm1_alphas_cumprod_t * model_output
-            )
-
-        elif self.prediction_type == "x0":
-            return model_output
-
-        elif self.prediction_type == "v":
-            # x0 = sqrt(alpha_bar) * x_t - sqrt(1 - alpha_bar) * v
-            sqrt_alphas_cumprod_t = self._extract(
-                self.sqrt_alphas_cumprod, t, x_t.shape
-            )
-            sqrt_one_minus_alphas_cumprod_t = self._extract(
-                self.sqrt_one_minus_alphas_cumprod, t, x_t.shape
-            )
-            return (
-                sqrt_alphas_cumprod_t * x_t
-                - sqrt_one_minus_alphas_cumprod_t * model_output
-            )
-
-        else:
-            raise ValueError(f"Unknown prediction type: {self.prediction_type}")
 
     def compute_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """
@@ -449,24 +227,30 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         return self.model(x, t)
 
     def training_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
-        """Training step."""
+        """
+        Training step - now simplified by using model's generation capabilities.
+        
+        The model handles all diffusion schedule management through its mixin.
+        """
         x_start = batch
         batch_size = x_start.shape[0]
 
         # Sample random timesteps uniformly
-        t = torch.randint(0, self.num_timesteps, (batch_size,), device=self.device)
+        t = torch.randint(
+            0, self.model.num_timesteps, (batch_size,), device=self.device
+        )
 
         # Sample Gaussian noise
         noise = torch.randn_like(x_start)
 
-        # Forward diffusion process
-        x_t = self.q_sample(x_start, t, noise)
+        # Forward diffusion process (handled by model's mixin)
+        x_t = self.model.q_sample(x_start, t, noise)
 
         # Predict with model
         model_output = self(x_t, t)
 
-        # Compute target based on prediction type
-        target = self.compute_training_target(x_start, noise, t)
+        # Compute target based on model's prediction type (handled by mixin)
+        target = self.model.get_training_target(x_start, noise, t)
 
         # Compute loss
         loss = self.compute_loss(model_output, target)
@@ -492,19 +276,21 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         batch_size = x_start.shape[0]
 
         # Sample random timesteps
-        t = torch.randint(0, self.num_timesteps, (batch_size,), device=self.device)
+        t = torch.randint(
+            0, self.model.num_timesteps, (batch_size,), device=self.device
+        )
 
         # Sample noise
         noise = torch.randn_like(x_start)
 
-        # Forward diffusion
-        x_t = self.q_sample(x_start, t, noise)
+        # Forward diffusion (handled by model)
+        x_t = self.model.q_sample(x_start, t, noise)
 
         # Predict with model
         model_output = self(x_t, t)
 
-        # Compute target
-        target = self.compute_training_target(x_start, noise, t)
+        # Compute target (handled by model)
+        target = self.model.get_training_target(x_start, noise, t)
 
         # Compute loss
         loss = self.compute_loss(model_output, target)
@@ -515,144 +301,67 @@ class BitImageDiffusionTrainer(pl.LightningModule):
         return loss
 
     @torch.no_grad()
-    def sample_ddim(
+    def generate_samples(
         self,
-        batch_size: int,
+        batch_size: Optional[int] = None,
         num_steps: Optional[int] = None,
-        eta: float = 0.0,
-        temperature: float = 1.0,
+        method: Optional[str] = None,
+        eta: Optional[float] = None,
         use_ema: Optional[bool] = None,
         noise: Optional[torch.Tensor] = None,
+        **kwargs,
     ) -> torch.Tensor:
         """
-        Sample using DDIM (Denoising Diffusion Implicit Models).
-
+        Generate samples using the model's generation capabilities.
+        
+        This is a convenience wrapper around model.generate() that handles EMA.
+        All generation logic is delegated to the model's ImageGenerationMixin.
+        
         Args:
-            batch_size: Number of samples to generate
-            num_steps: Number of denoising steps (default: self.num_sample_steps)
-            eta: DDIM stochasticity (0 = deterministic, 1 = DDPM)
-            temperature: Noise temperature for sampling
-            use_ema: Use EMA model if available (default: self.use_ema)
-            noise: Initial noise (if None, sample random noise)
-
+            batch_size: Number of samples (default: self.num_samples)
+            num_steps: Number of sampling steps (default: self.num_sample_steps)
+            method: Sampling method (default: self.sample_method)
+            eta: DDIM stochasticity (default: self.sample_eta)
+            use_ema: Use EMA model (default: self.use_ema)
+            noise: Initial noise (default: random)
+            **kwargs: Additional arguments passed to model.generate()
+        
         Returns:
             Generated images [B, C, H, W]
         """
         # Set defaults
+        if batch_size is None:
+            batch_size = self.num_samples
         if num_steps is None:
             num_steps = self.num_sample_steps
+        if method is None:
+            method = self.sample_method
+        if eta is None:
+            eta = self.sample_eta
         if use_ema is None:
             use_ema = self.use_ema
 
-        # Setup model
-        model = self.model
+        # Apply EMA if requested
         if use_ema and self.ema_model is not None:
             self.ema_model.apply_shadow()
 
-        model.eval()
-
-        # Create timestep schedule for DDIM
-        c = self.num_timesteps // num_steps
-        ddim_timesteps = torch.arange(0, self.num_timesteps, c, device=self.device)
-        ddim_timesteps_prev = torch.cat(
-            [torch.tensor([-1], device=self.device), ddim_timesteps[:-1]]
-        )
-
-        # Start from noise
-        if noise is None:
-            x = torch.randn(
-                batch_size,
-                self.in_channels,
-                self.image_size,
-                self.image_size,
+        try:
+            # Delegate to model's generate method
+            samples = self.model.generate(
+                batch_size=batch_size,
+                num_steps=num_steps,
+                method=method,
+                eta=eta,
+                noise=noise,
                 device=self.device,
+                **kwargs,
             )
-            x = x * temperature
-        else:
-            x = noise
+        finally:
+            # Restore original parameters if EMA was used
+            if use_ema and self.ema_model is not None:
+                self.ema_model.restore()
 
-        # Reverse diffusion process
-        for i in reversed(range(len(ddim_timesteps))):
-            t = ddim_timesteps[i]
-            t_prev = (
-                ddim_timesteps_prev[i]
-                if i > 0
-                else torch.tensor(-1, device=self.device)
-            )
-
-            # Expand timestep to batch
-            t_batch = torch.full((batch_size,), t, device=self.device, dtype=torch.long)
-
-            # Model prediction
-            model_output = model(x, t_batch)
-
-            # Predict x0
-            pred_x0 = self.predict_x0_from_model_output(x, t_batch, model_output)
-            pred_x0 = torch.clamp(pred_x0, -1.0, 1.0)
-
-            if i > 0:
-                # Get alpha values
-                alpha_t = self.alphas_cumprod[t]
-                alpha_t_prev = (
-                    self.alphas_cumprod[t_prev]
-                    if t_prev >= 0
-                    else torch.tensor(1.0, device=self.device)
-                )
-
-                # Compute variance
-                sigma_t = eta * torch.sqrt(
-                    (1 - alpha_t_prev) / (1 - alpha_t) * (1 - alpha_t / alpha_t_prev)
-                )
-
-                # Predict noise
-                if self.prediction_type == "epsilon":
-                    pred_noise = model_output
-                else:
-                    # Reconstruct noise from x0 prediction
-                    pred_noise = (x - torch.sqrt(alpha_t) * pred_x0) / torch.sqrt(
-                        1 - alpha_t
-                    )
-
-                # Compute x_{t-1}
-                dir_xt = torch.sqrt(1 - alpha_t_prev - sigma_t**2) * pred_noise
-                noise = torch.randn_like(x) * temperature if sigma_t > 0 else 0
-                x = torch.sqrt(alpha_t_prev) * pred_x0 + dir_xt + sigma_t * noise
-            else:
-                # Final step
-                x = pred_x0
-
-        # Restore model if using EMA
-        if use_ema and self.ema_model is not None:
-            self.ema_model.restore()
-
-        model.train()
-        return x
-
-    @torch.no_grad()
-    def sample_ddpm(
-        self,
-        batch_size: int,
-        use_ema: Optional[bool] = None,
-        noise: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """
-        Sample using original DDPM method (full Markov chain).
-
-        Args:
-            batch_size: Number of samples to generate
-            use_ema: Use EMA model if available
-            noise: Initial noise (if None, sample random noise)
-
-        Returns:
-            Generated images [B, C, H, W]
-        """
-        return self.sample_ddim(
-            batch_size=batch_size,
-            num_steps=self.num_timesteps,
-            eta=1.0,
-            use_ema=use_ema,
-            noise=noise,
-        )
+        return samples
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         """Save EMA state with checkpoint."""
@@ -764,6 +473,7 @@ class BitImageDiffusionTrainer(pl.LightningModule):
                 DiffusionSampleLogger(
                     batch_size=self.num_samples,
                     num_steps=self.num_sample_steps,
+                    log_every_n_epochs=self.sample_log_every_n_epochs,
                     use_ema=self.use_ema,
                 ),
             ]
