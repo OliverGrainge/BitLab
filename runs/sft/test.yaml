@@ -1,20 +1,24 @@
 datamodule: 
   type: alpaca-sft 
-  model_name: qwen2_5_05_instruct
-  batch_size: 1
+  model_name: qwen2_5_05_pt
+  batch_size: 8
   num_workers: 0
+  max_length: 1024  # Truncate sequences to prevent OOM errors
 
 
 trainer: 
   type: sfttrainer
-  model_name: qwen2_5_05_instruct
+  model_name: qwen2_5_05_pt
   learning_rate: 5e-5
   weight_decay: 0.01
+
+logger: 
+  type: tensorboard 
+  save_dir: logs/tensorboard/sft/test
+
 
 pl_trainer: 
   max_epochs: 1
   accelerator: gpu 
   devices: 1
-  precision: bf16-mixed 
-  max_steps: 100 
-
+  precision: bf16-true

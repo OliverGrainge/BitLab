@@ -4,5 +4,6 @@ huggingface_hub
 datasets
 transformers
 pytorch-lightning
-bitcore @ git+https://github.com/OliverGrainge/BitCore.git
+tensorboard
+#bitcore @ git+https://github.com/OliverGrainge/BitCore.git
 

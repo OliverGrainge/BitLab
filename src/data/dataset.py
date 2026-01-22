@@ -14,7 +14,7 @@ class BaseDatasetSFT(Dataset, ABC):
     """
     
     @abstractmethod
-    def __getitem__(self, index: int) -> Dict[str, Any]:
+    def __getitem__(self, index: int) -> list:
         """
         Get a single example from the dataset.
         
@@ -22,8 +22,12 @@ class BaseDatasetSFT(Dataset, ABC):
             index: Index of the example to retrieve.
             
         Returns:
-            A dictionary containing at least 'prompt' and 'response' keys.
-            May include additional metadata like 'instruction', 'input', etc.
+            A list of message dictionaries, each with 'role' and 'content' keys.
+            Format: [
+                {"role": "system", "content": "..."},
+                {"role": "user", "content": "..."},
+                {"role": "assistant", "content": "..."}
+            ]
         """
         pass
     
@@ -56,10 +60,13 @@ class AlpacaSFTDataset(BaseDatasetSFT):
             prompt = instruction
         
         response = row["output"] 
-        return {
-            "prompt": prompt,
-            "response": response,
-        }
+
+        message = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": response},
+        ]
+        return message
 
     def __len__(self) -> int:
         return len(self.dataset)

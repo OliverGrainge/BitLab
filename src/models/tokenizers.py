@@ -6,6 +6,12 @@ def load_qwen2_5_05_instruct_tokenizer():
     return tokenizer
 
 
+def load_qwen2_5_05_pt_tokenizer(): 
+    model_name = "Qwen/Qwen2.5-0.5B"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    return tokenizer
+
 TOKENIZERS_REGISTRY = {
     "qwen2_5_05_instruct": load_qwen2_5_05_instruct_tokenizer,
+    "qwen2_5_05_pt": load_qwen2_5_05_pt_tokenizer,
 }

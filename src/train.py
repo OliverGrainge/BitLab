@@ -4,7 +4,7 @@ from src.utils import load_config
 import pytorch_lightning as pl
 import sys 
 import os 
- 
+from typing import Optional
 
 
 
@@ -32,11 +32,11 @@ def load_logger(config: dict):
         return pl.loggers.WandbLogger(**logger_cfg)
     else:
         raise ValueError(f"Logger {logger_type} not found")
-    return logger 
 
-def load_pl_trainer(config: dict): 
+
+def load_pl_trainer(config: dict, logger: Optional["pl.loggers.logger.Logger"] = None):
     pl_trainer_cfg = config["pl_trainer"] 
-    pl_trainer = pl.Trainer(**pl_trainer_cfg)
+    pl_trainer = pl.Trainer(**pl_trainer_cfg, logger=logger)
     return pl_trainer
 
 def main(): 
@@ -46,7 +46,8 @@ def main():
     config = load_config(config_path)
     datamodule = load_datamodule(config) 
     trainer = load_trainer(config) 
-    pl_trainer = load_pl_trainer(config)
+    logger = load_logger(config)    
+    pl_trainer = load_pl_trainer(config, logger)
     pl_trainer.fit(trainer, datamodule) 
 
 
