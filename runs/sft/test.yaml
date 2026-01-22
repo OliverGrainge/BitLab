@@ -1,7 +1,7 @@
 datamodule: 
   type: alpaca-sft 
   model_name: qwen2_5_05_instruct
-  batch_size: 16
+  batch_size: 1
   num_workers: 0
 
 
