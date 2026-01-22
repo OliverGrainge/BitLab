@@ -1,0 +1,20 @@
+datamodule: 
+  type: alpaca-sft 
+  model_name: qwen2_5_05_instruct
+  batch_size: 16
+  num_workers: 0
+
+
+trainer: 
+  type: sfttrainer
+  model_name: qwen2_5_05_instruct
+  learning_rate: 5e-5
+  weight_decay: 0.01
+
+pl_trainer: 
+  max_epochs: 1
+  accelerator: gpu 
+  devices: 1
+  precision: bf16-mixed 
+  max_steps: 100 
+

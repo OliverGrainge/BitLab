@@ -1,16 +1,9 @@
-# Core dependencies
-torch>=1.9.0
-torchvision>=0.10.0
-numpy>=1.19.0
+
+torch 
+logging 
+huggingface_hub 
+datasets
+transformers
+pytorch-lightning
 bitcore @ git+https://github.com/OliverGrainge/BitCore.git
 
-# Development dependencies
-pytest>=6.0
-pytest-cov
-black
-flake8
-mypy
-
-# Documentation dependencies
-sphinx
-sphinx-rtd-theme
