@@ -18,6 +18,8 @@ def available_models() -> Sequence[str]:
 
 def download_datasets(ds_names: Iterable[str]) -> None:
     """Download one or more datasets by name."""
+    import gc
+    
     for name in ds_names:
         download_fn = DOWNLOAD_DATASETS_REGISTRY.get(name)
         if download_fn is None:
@@ -26,11 +28,17 @@ def download_datasets(ds_names: Iterable[str]) -> None:
             )
         print(f"[download] dataset: {name}")
         download_fn()
+        
+        # Force cleanup after each dataset download
+        gc.collect()
+    
     print("[done] datasets")
 
 
 def download_models(model_names: Iterable[str]) -> None:
     """Download one or more models by name."""
+    import gc
+    
     for name in model_names:
         download_fn = DOWNLOAD_MODELS_REGISTRY.get(name)
         if download_fn is None:
@@ -39,6 +47,10 @@ def download_models(model_names: Iterable[str]) -> None:
             )
         print(f"[download] model: {name}")
         download_fn()
+        
+        # Force cleanup after each model download
+        gc.collect()
+    
     print("[done] models")
 
 
@@ -141,8 +153,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Error while downloading: {e}", file=sys.stderr)
         return 1
 
+    # Force cleanup before exit to avoid segfault
+    import gc
+    gc.collect()
+    
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import os
+    exit_code = main()
+    # Use os._exit to bypass Python cleanup that causes segfault with datasets library
+    os._exit(exit_code)
