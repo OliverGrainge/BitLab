@@ -50,8 +50,8 @@ def download_alpaca():
 
 
 def download_fineweb_edu(
-    num_samples: int = 1000,#1000000,
-    buffer_size: int = 10, #10000,
+    num_samples: int = 5000000,
+    buffer_size: int = 10000,
     seed: int = 0,
 ):
     """
@@ -117,8 +117,8 @@ def download_fineweb_edu(
 
 
 def download_falcon_refinedweb(
-    num_samples: int = 1000,#1000000,
-    buffer_size: int = 10,#10000,
+    num_samples: int = 5000000,
+    buffer_size: int = 10000,
     seed: int = 0,
 ):
     """
