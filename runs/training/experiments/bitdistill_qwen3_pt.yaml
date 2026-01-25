@@ -1,0 +1,46 @@
+# BitDistill Stage 1: Continual Pretraining with BitLinear Quantization
+# Qwen3-0.6B with MLP and attention layer quantization
+# This stage uses only cross-entropy loss to adapt the quantized model to the data distribution
+
+experiment_name: bitdistill_qwen3_06B_stage1_pretrain
+
+datamodule: 
+  type: falcon-refinedweb-pt
+  tokenizer_name: qwen3_06B_pt
+  batch_size: 6
+  num_workers: 6
+  max_length: 1024  # Truncate sequences to prevent OOM errors
+
+trainer: 
+  type: bitdistillpretrainer  # Stage 1: Pretraining only
+  model_name: qwen3_06B_pt
+  learning_rate: 5e-5
+  weight_decay: 0.01
+  
+  # Quantization settings
+  quant_patterns: ["q_proj", "k_proj", "v_proj", "o_proj", "mlp"]  # Quantize attention and MLP layers
+  quant_type: bitnet
+
+logger: 
+  type: tensorboard 
+  save_dir: logs/tensorboard/bitdistill_qwen3_06B
+  experiment_name: stage1_pretrain
+
+checkpoint: 
+  monitor: train/loss 
+  mode: min 
+  save_top_k: 3  # Save top 3 checkpoints
+  dirpath: checkpoints/bitdistill_qwen3_06B_stage1_pretrain
+  filename: "best"
+  save_last: true  # Also save the last checkpoint
+
+pl_trainer: 
+  max_epochs: 100  # Stage 1 typically needs fewer epochs
+  accelerator: gpu 
+  devices: 1
+  precision: bf16-true
+  accumulate_grad_batches: 4  # Effective batch size = 4 * 4 = 16
+  
+  # Optional: Add validation
+  # val_check_interval: 0.25  # Validate 4 times per epoch
+  # limit_val_batches: 100  # Limit validation to 100 batches

@@ -1,0 +1,8 @@
+# Base Chat/Inference Configuration
+# Common settings shared across chat experiments
+# Override these in experiment-specific configs
+
+max_tokens: 256
+temperature: 0.7
+use_chat_template: true
+# tokenizer_model_name: null  # Optional: override tokenizer model (defaults to model_name)

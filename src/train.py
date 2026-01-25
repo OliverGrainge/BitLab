@@ -63,7 +63,7 @@ def load_pl_trainer(config: dict, logger: Optional["pl.loggers.logger.Logger"] =
     return pl_trainer
 
 def main(): 
-    torch.set_float32_matmul_precision('medium')
+    torch.set_float32_matmul_precision('high')
 
     config_path = sys.argv[1]
     if not os.path.exists(config_path):

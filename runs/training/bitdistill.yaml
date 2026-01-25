@@ -1,0 +1,34 @@
+datamodule: 
+  type: alpaca-sft 
+  tokenizer_name: qwen2_5_05_instruct
+  batch_size: 6
+  num_workers: 0
+  max_length: 1024  # Truncate sequences to prevent OOM errors
+
+
+trainer: 
+  type: bitdistilltrainer
+  model_name: qwen2_5_05_instruct
+  learning_rate: 5e-5
+  weight_decay: 0.01
+  quant_patterns: ["mlp"]
+  quant_type: bitnet
+  alpha: 0.5
+  temperature: 1.0
+
+logger: 
+  type: tensorboard 
+  save_dir: logs/tensorboard/bitdistill/test
+
+checkpoint: 
+  monitor: train/loss 
+  mode: min 
+  save_top_k: 1
+  dirpath: checkpoints/bitdistill/test
+  filename: "{epoch}-{train/loss:.4f}"
+
+pl_trainer: 
+  max_epochs: 500
+  accelerator: gpu 
+  devices: 1
+  precision: bf16-true

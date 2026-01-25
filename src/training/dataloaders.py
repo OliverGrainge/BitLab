@@ -99,6 +99,11 @@ class AlpacaSFTDataModule(SFTDataModule):
     def __init__(self, tokenizer_name: str, batch_size: int = 16, num_workers: int = 4, max_length: int = None):
         super().__init__(tokenizer_name, "alpaca", batch_size, num_workers, max_length)
 
+
+class MNLISFTDataModule(SFTDataModule): 
+    def __init__(self, tokenizer_name: str, batch_size: int = 16, num_workers: int = 4, max_length: int = None):
+        super().__init__(tokenizer_name, "mnli", batch_size, num_workers, max_length)
+
 class PretrainingDataModule(LightningDataModule):
     """
     DataModule for causal language model pretraining.
@@ -204,10 +209,35 @@ class FineWebEduPTDataModule(PretrainingDataModule):
         )
 
 
+class FalconRefinedWebPTDataModule(PretrainingDataModule):
+    """Convenience class for Falcon-RefinedWeb pretraining."""
+    
+    def __init__(
+        self, 
+        tokenizer_name: str, 
+        batch_size: int = 16, 
+        num_workers: int = 4, 
+        max_length: int = 512,
+        stride: int = None,
+    ):
+        super().__init__(
+            tokenizer_name, 
+            "falcon-refinedweb", 
+            batch_size, 
+            num_workers, 
+            max_length,
+            stride,
+        )
+
+
 # Add to registry
 DATALOADERS_REGISTRY = {
-    "alpaca-sft": AlpacaSFTDataModule,  # from your original code
+    "alpaca-sft": AlpacaSFTDataModule,
+    "mnli-sft": MNLISFTDataModule,
+
+    # Pretraining DataModules 
     "fineweb-edu-pt": FineWebEduPTDataModule,
+    "falcon-refinedweb-pt": FalconRefinedWebPTDataModule,
 }
 
 

@@ -1,0 +1,31 @@
+# Base BitDistill Training Configuration
+# Common settings shared across BitDistill experiments
+# Override these in experiment-specific configs
+
+datamodule: 
+  type: alpaca-sft 
+  num_workers: 0
+  max_length: 1024  # Truncate sequences to prevent OOM errors
+
+trainer: 
+  type: bitdistilltrainer
+  learning_rate: 5e-5
+  weight_decay: 0.01
+  quant_type: bitnet
+  alpha: 0.5
+  temperature: 1.0
+
+logger: 
+  type: tensorboard 
+
+checkpoint: 
+  monitor: train/loss 
+  mode: min 
+  save_top_k: 1
+  filename: "epoch={epoch}-loss={train/loss:.4f}"
+
+pl_trainer: 
+  max_epochs: 500
+  accelerator: gpu 
+  devices: 1
+  precision: bf16-true

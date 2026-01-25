@@ -1,2 +1,6 @@
 *.pyc
 lightning_logs/
+logs/ 
+checkpoints
+data/
+scratch.py

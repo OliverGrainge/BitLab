@@ -1,0 +1,15 @@
+# Chat/Inference Config for SFT Qwen2.5-0.5B Pretrained Experiment
+# Based on: runs/chat/base/default.yaml
+# References: runs/training/experiments/sft_qwen05_pt.yaml
+
+training_experiment: sft_qwen05_pt
+
+model_name: qwen2_5_05_pt
+# Update this path to match your actual checkpoint location
+# You can use the latest checkpoint or specify a specific one
+checkpoint: checkpoints/sft_qwen05_pt/epoch=10-train_loss=0.1007.ckpt
+message: "What is the capital of the United Kingdom?"
+max_tokens: 64
+temperature: 0.7
+use_chat_template: true
+tokenizer_model_name: qwen2_5_05_instruct  # Optional: override tokenizer model

@@ -1,7 +1,11 @@
+import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
+
 from datasets import load_dataset, load_from_disk
 from torch.utils.data import Dataset
+
+from src.utils import get_data_dir
 
 
 # ============================================================================
@@ -116,6 +120,61 @@ class AlpacaSFTDataset(BaseDatasetSFT):
         return len(self.dataset)
 
 
+class MNLISFTDataset(BaseDatasetSFT):
+    """
+    MultiNLI dataset formatted for supervised fine-tuning
+    using LM-style prompting (not a classifier head).
+    """
+
+    LABEL_MAP = {
+        0: "entailment",
+        1: "neutral",
+        2: "contradiction",
+    }
+
+    def __init__(self, split="train"):
+        super().__init__()
+        self.dataset = load_dataset("nyu-mll/multi_nli")[split]
+
+    def __getitem__(self, index: int):
+        row = self.dataset[index]
+
+        premise = row["premise"].strip()
+        hypothesis = row["hypothesis"].strip()
+        label_id = row["label"]
+
+        # Skip unlabeled examples if any (MNLI has some)
+        if label_id == -1:
+            raise IndexError("Unlabeled MNLI example")
+
+        label_text = self.LABEL_MAP[label_id]
+
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful assistant."
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Premise: {premise}\n"
+                    f"Hypothesis: {hypothesis}\n"
+                    "Question: Does the premise entail, contradict, "
+                    "or is it neutral with respect to the hypothesis?"
+                )
+            },
+            {
+                # THIS is what gets supervised
+                "role": "assistant",
+                "content": label_text
+            }
+        ]
+
+        return messages
+
+    def __len__(self):
+        return len(self.dataset)
+
 # ============================================================================
 # Pretraining Dataset Implementations
 # ============================================================================
@@ -123,18 +182,19 @@ class AlpacaSFTDataset(BaseDatasetSFT):
 class FineWebEduDataset(BaseDatasetPT):
     """
     FineWeb-Edu dataset for pretraining.
-    
+
     Returns raw text strings from educational web content.
     """
-    
-    def __init__(self, data_path: str = "data/fineweb-edu"):
+
+    def __init__(self, data_path: str | None = None):
         """
         Args:
-            data_path: Path to the saved FineWeb-Edu dataset on disk.
-                      Should be created using download_fineweb_edu().
+            data_path: Path relative to BITLAB_DATA_DIR (default: fineweb-edu).
+                      Use download_fineweb_edu() to create.
         """
         super().__init__()
-        self.dataset = load_from_disk(data_path)
+        rel = "fineweb-edu"
+        self.dataset = load_from_disk(os.path.join(get_data_dir(), rel))
         print(f"Loaded FineWeb-Edu dataset with {len(self.dataset)} documents")
 
     def __getitem__(self, index: int) -> str:
@@ -144,6 +204,37 @@ class FineWebEduDataset(BaseDatasetPT):
         """
         row = self.dataset[index]
         return row["text"]
+
+    def __len__(self) -> int:
+        return len(self.dataset)
+
+
+class FalconRefinedWebDataset(BaseDatasetPT):
+    """
+    Falcon-RefinedWeb dataset for pretraining.
+
+    Returns raw text strings from high-quality web content filtered
+    and processed for the Falcon LLM.
+    """
+
+    def __init__(self, data_path: str | None = None):
+        """
+        Args:
+            data_path: Path relative to BITLAB_DATA_DIR (default: falcon-refinedweb).
+                      Use download_falcon_refinedweb() to create.
+        """
+        super().__init__()
+        rel = "falcon-refinedweb" 
+        self.dataset = load_from_disk(os.path.join(get_data_dir(), rel))
+        print(f"Loaded Falcon-RefinedWeb dataset with {len(self.dataset)} documents")
+
+    def __getitem__(self, index: int) -> str:
+        """
+        Returns:
+            Raw text string for pretraining.
+        """
+        row = self.dataset[index]
+        return row["content"]
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -159,4 +250,5 @@ DATASETS_REGISTRY = {
     
     # Pretraining Datasets
     "fineweb-edu": FineWebEduDataset,
+    "falcon-refinedweb": FalconRefinedWebDataset,
 }

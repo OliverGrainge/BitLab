@@ -1,5 +1,9 @@
+import os
+
 from datasets import load_dataset, Dataset, load_from_disk
-from src.data import dataset 
+
+from src.data import dataset
+from src.utils import data_path, get_data_dir
 
 
 def download_alpaca(): 
@@ -13,7 +17,6 @@ def download_alpaca():
 
 
 def download_fineweb_edu(
-    output_dir: str = "data/fineweb-edu",
     num_samples: int = 1000000,
     buffer_size: int = 10000,
     seed: int = 0,
@@ -22,7 +25,7 @@ def download_fineweb_edu(
     Download and save a small subset of FineWeb-Edu to disk.
 
     Args:
-        output_dir: directory to save the dataset
+        output_dir: path relative to BITLAB_DATA_DIR (default: fineweb-edu)
         num_samples: number of documents to download
         buffer_size: shuffle buffer for streaming
         seed: RNG seed
@@ -31,8 +34,9 @@ def download_fineweb_edu(
         A Hugging Face Dataset object loaded from disk.
     """
     from datasets import load_dataset, Dataset
-    import os
-    
+
+    output_dir = data_path("fineweb-edu")
+
     # Avoid multiprocessing issues
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     
@@ -76,8 +80,86 @@ def download_fineweb_edu(
     return dataset
 
 
+def download_falcon_refinedweb(
+    num_samples: int = 1000000,
+    buffer_size: int = 10000,
+    seed: int = 0,
+):
+    """
+    Download and save a subset of Falcon-RefinedWeb to disk.
+
+    Args:
+        output_dir: path relative to BITLAB_DATA_DIR (default: falcon-refinedweb)
+        num_samples: number of documents to download
+        buffer_size: shuffle buffer for streaming
+        seed: RNG seed
+
+    Returns:
+        A Hugging Face Dataset object loaded from disk.
+    """
+
+
+    output_dir = data_path("falcon-refinedweb")
+
+    # Avoid multiprocessing issues
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    
+    print(f"Streaming {num_samples} samples from Falcon-RefinedWeb...")
+    
+    # Stream the dataset
+    stream_ds = load_dataset(
+        "tiiuae/falcon-refinedweb",
+        split="train",
+        streaming=True,
+    )
+    
+    # Shuffle and take samples
+    stream_ds = stream_ds.shuffle(seed=seed, buffer_size=buffer_size)
+    stream_ds = stream_ds.take(num_samples)
+    
+    # Collect samples into a list
+    samples = []
+    for sample in stream_ds:
+        samples.append(sample)
+    
+    print(f"Collected {len(samples)} samples")
+    
+    # Convert to Dataset
+    if samples:
+        dataset = Dataset.from_dict({
+            key: [sample[key] for sample in samples]
+            for key in samples[0].keys()
+        })
+    else:
+        raise ValueError("No samples collected!")
+    
+    # Save to disk
+    print(f"Saving to {output_dir}...")
+    os.makedirs(output_dir, exist_ok=True)
+    dataset.save_to_disk(output_dir)
+    
+    print(f"Dataset saved! You can now load it with: load_from_disk('{output_dir}')")
+    
+    return dataset
+
+def download_mnli(): 
+    """
+    Download the MultiNLI dataset from the Hugging Face Hub.
+    Returns:
+        A Hugging Face Dataset object containing the MultiNLI data.
+    """
+    dataset = load_dataset("nyu-mll/multi_nli")
+    return dataset
+
+
 
 DOWNLOAD_DATASETS_REGISTRY = {
+    # fine-tuning datasets
     "alpaca": download_alpaca,
+    "mnli": download_mnli,
+
+    # pretraining datasets
     "fineweb-edu": download_fineweb_edu,
+    "falcon-refinedweb": download_falcon_refinedweb,
+    
 }
