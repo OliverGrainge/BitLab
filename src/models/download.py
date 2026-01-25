@@ -1,4 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from huggingface_hub import snapshot_download
 
 
 def download_qwen2_5_05B_instruct():
@@ -8,6 +9,8 @@ def download_qwen2_5_05B_instruct():
         A tuple containing (model, tokenizer).
     """
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
+    # Use snapshot_download to ensure all files (config, tokenizer, model) are cached
+    snapshot_download(repo_id=model_name, repo_type="model")
     model = AutoModelForCausalLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
@@ -21,6 +24,8 @@ def download_qwen2_5_05B_pt():
         A tuple containing (model, tokenizer).
     """
     model_name = "Qwen/Qwen2.5-0.5B"
+    # Use snapshot_download to ensure all files (config, tokenizer, model) are cached
+    snapshot_download(repo_id=model_name, repo_type="model")
     model = AutoModelForCausalLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer
@@ -33,6 +38,8 @@ def download_qwen3_06B_pt():
         A tuple containing (model, tokenizer).
     """
     model_name = "Qwen/Qwen3-0.6B"
+    # Use snapshot_download to ensure all files (config, tokenizer, model) are cached
+    snapshot_download(repo_id=model_name, repo_type="model")
     model = AutoModelForCausalLM.from_pretrained(model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     return model, tokenizer

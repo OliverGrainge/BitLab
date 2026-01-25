@@ -3,19 +3,19 @@ from transformers import AutoTokenizer
 
 def load_qwen2_5_05B_instruct_tokenizer(): 
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
     return tokenizer
 
 
 def load_qwen2_5_05B_pt_tokenizer(): 
     model_name = "Qwen/Qwen2.5-0.5B"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
     return tokenizer
 
 
 def load_qwen3_06B_pt_tokenizer(): 
     model_name = "Qwen/Qwen3-0.6B"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
     return tokenizer
 
 TOKENIZERS_REGISTRY = {
