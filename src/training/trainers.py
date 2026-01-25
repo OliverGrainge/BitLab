@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from collections import defaultdict
 from typing import Dict
 
-from src.models.models import MODELS_REGISTRY
+from src.models.models import load_model
 
 
 class SFTTrainer(pl.LightningModule):
@@ -19,7 +19,7 @@ class SFTTrainer(pl.LightningModule):
         self.save_hyperparameters()
         
         self.model_name = str(model_name)
-        self.model = MODELS_REGISTRY[model_name]()  # Call the loader function
+        self.model = load_model(model_name)
         
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
@@ -135,7 +135,7 @@ class BitDistillPreTrainer(pl.LightningModule):
         self.total_tokens_seen = 0
         
         # Initialize model
-        self.model = MODELS_REGISTRY[model_name]()
+        self.model = load_model(model_name)
         
         # Prepare model with BitLinear quantization
         self.prepare_model()
@@ -286,7 +286,7 @@ class BitDistillSFTTrainer(pl.LightningModule):
         self.total_tokens_seen = 0
         
         # Initialize models
-        self.teacher = MODELS_REGISTRY[model_name]()
+        self.teacher = load_model(model_name)
         self.student = copy.deepcopy(self.teacher)
         
         # Prepare models
@@ -748,6 +748,12 @@ TRAINERS_REGISTRY = {
     "bitdistillpretrainer": BitDistillPreTrainer,
     "bitdistillsfttrainer": BitDistillSFTTrainer,
 }
+
+
+def load_bitlab_trainer(trainer_name: str, **kwargs): 
+    if trainer_name not in TRAINERS_REGISTRY:
+        raise ValueError(f"Trainer {trainer_name} not found")
+    return TRAINERS_REGISTRY[trainer_name](**kwargs)
 
 
 if __name__ == "__main__": 

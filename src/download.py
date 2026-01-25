@@ -2,8 +2,8 @@ import argparse
 import sys
 from typing import Iterable, Sequence
 
-from src.data.download import DOWNLOAD_DATASETS_REGISTRY
-from src.models.download import DOWNLOAD_MODELS_REGISTRY
+from src.data.download import download_bitlab_dataset, DOWNLOAD_DATASETS_REGISTRY
+from src.models.download import download_bitlab_model, DOWNLOAD_MODELS_REGISTRY
 
 
 def available_datasets() -> Sequence[str]:
@@ -16,41 +16,16 @@ def available_models() -> Sequence[str]:
     return sorted(DOWNLOAD_MODELS_REGISTRY.keys())
 
 
-def download_datasets(ds_names: Iterable[str]) -> None:
-    """Download one or more datasets by name."""
-    import gc
-    
+def download_datasets(ds_names: Iterable[str]) -> None:    
     for name in ds_names:
-        download_fn = DOWNLOAD_DATASETS_REGISTRY.get(name)
-        if download_fn is None:
-            raise KeyError(
-                f"Unknown dataset '{name}'. Available: {', '.join(available_datasets())}"
-            )
-        print(f"[download] dataset: {name}")
-        download_fn()
-        
-        # Force cleanup after each dataset download
-        gc.collect()
-    
+        download_bitlab_dataset(name)
     print("[done] datasets")
 
 
 def download_models(model_names: Iterable[str]) -> None:
     """Download one or more models by name."""
-    import gc
-    
     for name in model_names:
-        download_fn = DOWNLOAD_MODELS_REGISTRY.get(name)
-        if download_fn is None:
-            raise KeyError(
-                f"Unknown model '{name}'. Available: {', '.join(available_models())}"
-            )
-        print(f"[download] model: {name}")
-        download_fn()
-        
-        # Force cleanup after each model download
-        gc.collect()
-    
+        download_bitlab_model(name)
     print("[done] models")
 
 

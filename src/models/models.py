@@ -22,3 +22,8 @@ MODELS_REGISTRY = {
     "qwen2_5_05B_pt": load_qwen2_5_05B_pt,
     "qwen3_06B_pt": load_qwen3_06B_pt,
 }
+
+def load_bitlab_model(model_name: str): 
+    if model_name not in MODELS_REGISTRY: 
+        raise ValueError(f"Model {model_name} not found")
+    return MODELS_REGISTRY[model_name]()

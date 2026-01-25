@@ -92,9 +92,12 @@ class AlpacaSFTDataset(BaseDatasetSFT):
     Converts instruction-input-output format to chat messages.
     """
     
-    def __init__(self):
+    def __init__(self, split: str = "train"):
         super().__init__()
-        self.dataset = load_dataset("tatsu-lab/alpaca")["train"]
+        if split != "train":
+            raise ValueError(f"Split {split} not supported for Alpaca dataset")
+
+        self.dataset = load_dataset("tatsu-lab/alpaca")[split]
 
     def __getitem__(self, index: int) -> List[Dict[str, str]]:
         row = self.dataset[index]
@@ -133,6 +136,9 @@ class MNLISFTDataset(BaseDatasetSFT):
     }
 
     def __init__(self, split="train"):
+        if split not in ["train", "validation_matched", "validation_mismatched"]:
+            raise ValueError(f"Split {split} not supported for MultiNLI dataset")
+
         super().__init__()
         self.dataset = load_dataset("nyu-mll/multi_nli")[split]
 
@@ -151,22 +157,22 @@ class MNLISFTDataset(BaseDatasetSFT):
 
         messages = [
             {
-                "role": "system",
-                "content": "You are a helpful assistant."
-            },
-            {
                 "role": "user",
                 "content": (
                     f"Premise: {premise}\n"
-                    f"Hypothesis: {hypothesis}\n"
-                    "Question: Does the premise entail, contradict, "
-                    "or is it neutral with respect to the hypothesis?"
+                    f"Hypothesis: {hypothesis}\n\n"
+                    "Does the premise entail, contradict, or is neutral "
+                    "with respect to the hypothesis?\n\n"
+                    "Answer with one word: entailment, neutral, or contradiction."
                 )
             },
             {
-                # THIS is what gets supervised
                 "role": "assistant",
-                "content": label_text
+                "content": f"The answer is: {label_text}"
+            },
+            {
+                "role": "assistant",
+                "content": label_text  # Just "entailment", "neutral", or "contradiction"
             }
         ]
 
@@ -186,13 +192,16 @@ class FineWebEduDataset(BaseDatasetPT):
     Returns raw text strings from educational web content.
     """
 
-    def __init__(self, data_path: str | None = None):
+    def __init__(self, split: str = "train"):
         """
         Args:
             data_path: Path relative to BITLAB_DATA_DIR (default: fineweb-edu).
                       Use download_fineweb_edu() to create.
         """
         super().__init__()
+        if split != "train": 
+            raise ValueError(f"Split {split} not supported for FineWeb-Edu dataset")
+
         rel = "fineweb-edu"
         self.dataset = load_from_disk(os.path.join(get_data_dir(), rel))
         print(f"Loaded FineWeb-Edu dataset with {len(self.dataset)} documents")
@@ -217,12 +226,14 @@ class FalconRefinedWebDataset(BaseDatasetPT):
     and processed for the Falcon LLM.
     """
 
-    def __init__(self, data_path: str | None = None):
+    def __init__(self, split: str = "train"):
         """
         Args:
             data_path: Path relative to BITLAB_DATA_DIR (default: falcon-refinedweb).
                       Use download_falcon_refinedweb() to create.
         """
+        if split != "train": 
+            raise ValueError(f"Split {split} not supported for FineWeb-Edu dataset")
         super().__init__()
         rel = "falcon-refinedweb" 
         self.dataset = load_from_disk(os.path.join(get_data_dir(), rel))
@@ -252,3 +263,8 @@ DATASETS_REGISTRY = {
     "fineweb-edu": FineWebEduDataset,
     "falcon-refinedweb": FalconRefinedWebDataset,
 }
+
+def load_bitlab_dataset(dataset_name: str, split: str = "train"): 
+    if dataset_name not in DATASETS_REGISTRY: 
+        raise ValueError(f"Dataset {dataset_name} not found")
+    return DATASETS_REGISTRY[dataset_name](split=split)

@@ -2,8 +2,8 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
-from src.models.tokenizers import TOKENIZERS_REGISTRY
-from src.data.dataset import DATASETS_REGISTRY
+from src.models.tokenizers import load_bitlab_tokenizer
+from src.data.dataset import load_bitlab_dataset
 
 class SFTDataModule(LightningDataModule): 
     def __init__(self, tokenizer_name: str, dataset_name: str, batch_size: int = 16, num_workers: int = 4, max_length: int = None):
@@ -16,8 +16,8 @@ class SFTDataModule(LightningDataModule):
         self.max_length = int(max_length) if max_length is not None else None
 
     def setup(self, stage: str):
-        self.tokenizer = TOKENIZERS_REGISTRY[self.tokenizer_name]()
-        self.dataset = DATASETS_REGISTRY[self.dataset_name]()
+        self.tokenizer = load_bitlab_tokenizer(self.tokenizer_name)
+        self.dataset = load_bitlab_dataset(self.dataset_name, split="train")
 
     def train_dataloader(self): 
         return DataLoader(self.dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False, collate_fn=self.collate_fn)
@@ -134,8 +134,8 @@ class PretrainingDataModule(LightningDataModule):
         self.stride = int(stride) if stride is not None else self.max_length
 
     def setup(self, stage: str):
-        self.tokenizer = TOKENIZERS_REGISTRY[self.tokenizer_name]()
-        self.dataset = DATASETS_REGISTRY[self.dataset_name]()
+        self.tokenizer = load_bitlab_tokenizer(self.tokenizer_name)
+        self.dataset = load_bitlab_dataset(self.dataset_name, split="train")
 
     def train_dataloader(self):
         return DataLoader(
@@ -239,6 +239,12 @@ DATALOADERS_REGISTRY = {
     "fineweb-edu-pt": FineWebEduPTDataModule,
     "falcon-refinedweb-pt": FalconRefinedWebPTDataModule,
 }
+
+
+def load_bitlab_datamodule(datamodule_name: str, **kwargs):
+    if datamodule_name not in DATALOADERS_REGISTRY:
+        raise ValueError(f"DataModule {datamodule_name} not found")
+    return DATALOADERS_REGISTRY[datamodule_name](**kwargs)
 
 
 if __name__ == "__main__":

@@ -44,3 +44,9 @@ DOWNLOAD_MODELS_REGISTRY = {
     "qwen2_5_05B_pt": download_qwen2_5_05B_pt,
     "qwen3_06B_pt": download_qwen3_06B_pt,
 }
+
+
+def download_bitlab_model(model_name: str):
+    if model_name not in DOWNLOAD_MODELS_REGISTRY:
+        raise ValueError(f"Model {model_name} not found")
+    return DOWNLOAD_MODELS_REGISTRY[model_name]()

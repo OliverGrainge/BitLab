@@ -1,5 +1,5 @@
-from src.training.trainers import TRAINERS_REGISTRY 
-from src.training.dataloaders import DATALOADERS_REGISTRY
+from src.training.trainers import load_bitlab_trainer 
+from src.training.dataloaders import load_bitlab_datamodule
 from src.utils import load_config 
 import pytorch_lightning as pl
 import sys 
@@ -12,46 +12,23 @@ import torch
 def load_datamodule(config: dict): 
     datamodule_cfg = config["datamodule"] 
     datamodule_type = datamodule_cfg.pop("type", None)  
-    if datamodule_type not in DATALOADERS_REGISTRY:
-        raise ValueError(f"DataModule {datamodule_type} not found")
-    return DATALOADERS_REGISTRY[datamodule_type](**datamodule_cfg)
+    return load_bitlab_datamodule(datamodule_type, **datamodule_cfg)
 
 def load_trainer(config: dict): 
     trainer_cfg = config["trainer"] 
     trainer_type = trainer_cfg.pop("type", None)
-    if trainer_type not in TRAINERS_REGISTRY:
-        raise ValueError(f"Trainer {trainer_type} not found")
-    return TRAINERS_REGISTRY[trainer_type](**trainer_cfg)
+    return load_bitlab_trainer(trainer_type, **trainer_cfg)
 
 def load_logger(config: dict): 
     logger_cfg = config["logger"].copy()  # Don't modify original config
     logger_type = logger_cfg.pop("type", None) 
 
     if logger_type == "tensorboard":
-        # Use experiment_name from config as the name parameter
-        # TensorBoardLogger structure: save_dir/name/version_n/
-        # Remove from logger_cfg so it's never passed to TensorBoardLogger/SummaryWriter
-        logger_cfg.pop("experiment_name", None)
-        experiment_name = config.get("experiment_name")
-        if experiment_name:
-            # If save_dir ends with experiment_name, use parent as save_dir
-            save_dir = logger_cfg.get("save_dir", "logs/tensorboard")
-            if save_dir.endswith(experiment_name):
-                # Extract parent directory
-                parent_dir = "/".join(save_dir.split("/")[:-1]) if "/" in save_dir else "logs/tensorboard"
-                logger_cfg["save_dir"] = parent_dir
-            elif "save_dir" not in logger_cfg:
-                logger_cfg["save_dir"] = "logs/tensorboard"
-            
-            # Set name to experiment_name for specific experiment folder
-            logger_cfg["name"] = experiment_name
-        
         return pl.loggers.TensorBoardLogger(**logger_cfg)
     elif logger_type == "wandb":
         return pl.loggers.WandbLogger(**logger_cfg)
     else:
         raise ValueError(f"Logger {logger_type} not found")
-
 
 def load_checkpointer(config: dict): 
     checkpointer_cfg = config["checkpoint"] 

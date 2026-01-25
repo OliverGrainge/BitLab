@@ -161,5 +161,9 @@ DOWNLOAD_DATASETS_REGISTRY = {
     # pretraining datasets
     "fineweb-edu": download_fineweb_edu,
     "falcon-refinedweb": download_falcon_refinedweb,
-    
 }
+
+def download_bitlab_dataset(dataset_name: str):
+    if dataset_name not in DOWNLOAD_DATASETS_REGISTRY:
+        raise ValueError(f"Dataset {dataset_name} not found")
+    return DOWNLOAD_DATASETS_REGISTRY[dataset_name]()

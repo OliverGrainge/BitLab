@@ -22,3 +22,8 @@ TOKENIZERS_REGISTRY = {
     "qwen2_5_05B_pt": load_qwen2_5_05B_pt_tokenizer,
     "qwen3_06B_pt": load_qwen3_06B_pt_tokenizer,
 }
+
+def load_bitlab_tokenizer(tokenizer_name: str): 
+    if tokenizer_name not in TOKENIZERS_REGISTRY: 
+        raise ValueError(f"Tokenizer {tokenizer_name} not found")
+    return TOKENIZERS_REGISTRY[tokenizer_name]()
