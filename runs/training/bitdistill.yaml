@@ -21,7 +21,7 @@ logger:
   save_dir: logs/tensorboard/bitdistill/test
 
 checkpoint: 
-  monitor: train/loss 
+  monitor: train_loss 
   mode: min 
   save_top_k: 1
   dirpath: checkpoints/bitdistill/test

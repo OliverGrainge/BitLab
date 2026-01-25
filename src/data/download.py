@@ -1,9 +1,42 @@
 import os
+import shutil
+from pathlib import Path
 
 from datasets import load_dataset, Dataset, load_from_disk
 
 from src.data import dataset
 from src.utils import data_path, get_data_dir
+
+
+def cleanup_hf_artifacts():
+    """
+    Remove HuggingFace lock files and other artifacts from the project root.
+    These are created by the datasets library during streaming downloads.
+    """
+    repo_root = Path(__file__).parent.parent.parent
+    
+    removed = []
+    
+    # Remove everything inside .locks folder
+    locks_dir = repo_root / ".locks"
+    if locks_dir.exists() and locks_dir.is_dir():
+        try:
+            shutil.rmtree(locks_dir)
+            removed.append(str(locks_dir))
+        except OSError:
+            pass  # Directory might have been removed already or doesn't exist
+    
+    # Remove datasets--HuggingFaceFW* folders
+    for hf_folder in repo_root.glob("datasets--*"):
+        if hf_folder.is_dir():
+            try:
+                shutil.rmtree(hf_folder)
+                removed.append(str(hf_folder))
+            except OSError:
+                pass  # Directory might have been removed already or doesn't exist
+    
+    if removed:
+        print(f"Cleaned up {len(removed)} artifact(s) from project root")
 
 
 def download_alpaca(): 
@@ -17,8 +50,8 @@ def download_alpaca():
 
 
 def download_fineweb_edu(
-    num_samples: int = 1000000,
-    buffer_size: int = 10000,
+    num_samples: int = 1000,#1000000,
+    buffer_size: int = 10, #10000,
     seed: int = 0,
 ):
     """
@@ -77,12 +110,15 @@ def download_fineweb_edu(
     
     print(f"Dataset saved! You can now load it with: load_from_disk('{output_dir}')")
     
+    # Clean up any artifacts created in project root
+    cleanup_hf_artifacts()
+    
     return dataset
 
 
 def download_falcon_refinedweb(
-    num_samples: int = 1000000,
-    buffer_size: int = 10000,
+    num_samples: int = 1000,#1000000,
+    buffer_size: int = 10,#10000,
     seed: int = 0,
 ):
     """
@@ -139,6 +175,9 @@ def download_falcon_refinedweb(
     dataset.save_to_disk(output_dir)
     
     print(f"Dataset saved! You can now load it with: load_from_disk('{output_dir}')")
+    
+    # Clean up any artifacts created in project root
+    cleanup_hf_artifacts()
     
     return dataset
 

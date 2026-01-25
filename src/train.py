@@ -1,3 +1,6 @@
+from src.utils import load_env 
+load_env()
+
 from src.training.trainers import load_bitlab_trainer 
 from src.training.dataloaders import load_bitlab_datamodule
 from src.utils import load_config 

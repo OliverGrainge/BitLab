@@ -1,5 +1,6 @@
 from transformers import AutoTokenizer
 
+
 def load_qwen2_5_05B_instruct_tokenizer(): 
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(model_name)

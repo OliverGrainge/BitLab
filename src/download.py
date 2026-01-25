@@ -1,3 +1,7 @@
+from src.utils import load_env 
+load_env()
+
+
 import argparse
 import sys
 from typing import Iterable, Sequence

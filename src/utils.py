@@ -1,5 +1,27 @@
 import os
 import yaml
+from pathlib import Path
+
+
+def load_env():
+    """
+    Load environment variables from .env file if it exists.
+    Call this function at the very top of executable scripts (before other imports)
+    to ensure environment variables are available when packages are imported.
+    """
+    try:
+        from dotenv import load_dotenv
+        # Look for .env file in the repository root (parent of src/)
+        repo_root = Path(__file__).parent.parent
+        env_path = repo_root / '.env'
+        print(f"Loading environment variables from {env_path}")
+        if env_path.exists():
+            load_dotenv(env_path)
+    except ImportError as e:
+        raise ImportError(
+            "python-dotenv is required for loading the .env file. "
+            "Please install it with 'pip install python-dotenv'."
+        ) from e
 
 
 def get_data_dir() -> str:

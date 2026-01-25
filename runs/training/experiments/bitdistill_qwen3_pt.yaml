@@ -15,7 +15,7 @@ trainer:
   type: bitdistillpretrainer  # Stage 1: Pretraining only
   model_name: qwen3_06B_pt
   learning_rate: 5e-5
-  weight_decay: 0.01
+  weight_decay: 0.00
   
   # Quantization settings
   quant_patterns: ["q_proj", "k_proj", "v_proj", "o_proj", "mlp"]  # Quantize attention and MLP layers
@@ -23,16 +23,24 @@ trainer:
 
 logger: 
   type: tensorboard 
-  save_dir: logs/tensorboard/bitdistill_qwen3_06B
-  experiment_name: stage1_pretrain
+  save_dir: logs/tensorboard/bitdistill
+  name: bitdistill_qwen3_experiment  # Optional: creates subdirectory
+  version: continued-pretrain-1  # This will be the folder name instead of version_N
+
+#logger: 
+#  type: wandb
+#  project: bitdistill_qwen3_06B  # WandB project name (like workspace)
+#  name: continued-pretrain-1  # Run name (equivalent to TensorBoard's version)
+#  save_dir: logs/wandb/bitdistill_qwen3_06B  # Optional: local save directory
 
 checkpoint: 
-  monitor: train/loss 
+  monitor: train_loss 
   mode: min 
-  save_top_k: 3  # Save top 3 checkpoints
-  dirpath: checkpoints/bitdistill_qwen3_06B_stage1_pretrain
-  filename: "best"
-  save_last: true  # Also save the last checkpoint
+  save_top_k: 3  # Save top 3 best checkpoints (based on train_loss)
+  dirpath: checkpoints/bitdistill/qwen3_06B/continued-pretrain-1
+  filename: "qwen3_06B-{step}-{train_loss:.4f}"  # Include step and loss in filename
+  every_n_train_steps: 2000  # Checkpoint every N training steps (adjust as needed)
+  save_last: true  # 
 
 pl_trainer: 
   max_epochs: 100  # Stage 1 typically needs fewer epochs

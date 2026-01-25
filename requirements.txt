@@ -6,4 +6,4 @@ transformers
 pytorch-lightning
 tensorboard
 #bitcore @ git+https://github.com/OliverGrainge/BitCore.git
-
+python-dotenv

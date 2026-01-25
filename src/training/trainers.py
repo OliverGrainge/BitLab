@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from collections import defaultdict
 from typing import Dict
 
-from src.models.models import load_model
+from src.models.models import load_bitlab_model
 
 
 class SFTTrainer(pl.LightningModule):
@@ -19,7 +19,7 @@ class SFTTrainer(pl.LightningModule):
         self.save_hyperparameters()
         
         self.model_name = str(model_name)
-        self.model = load_model(model_name)
+        self.model = load_bitlab_model(model_name)
         
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
@@ -135,7 +135,7 @@ class BitDistillPreTrainer(pl.LightningModule):
         self.total_tokens_seen = 0
         
         # Initialize model
-        self.model = load_model(model_name)
+        self.model = load_bitlab_model(model_name)
         
         # Prepare model with BitLinear quantization
         self.prepare_model()
@@ -210,12 +210,12 @@ class BitDistillPreTrainer(pl.LightningModule):
         loss = self._ce_loss(logits, labels)
         
         # Standard logging (step-based)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log("train/ce_loss", loss, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train_ce_loss", loss, on_step=True, on_epoch=True)
         
         # Token-based logging
-        self.log("train_tokens/loss", loss, on_step=True, on_epoch=False, prog_bar=False)
-        self.log("train_tokens/ce_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
+        self.log("train_tokens_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
+        self.log("train_tokens_ce_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
         
         # Log total tokens seen
         self.log("tokens_seen", float(self.total_tokens_seen), on_step=True, on_epoch=False, prog_bar=True)
@@ -286,7 +286,7 @@ class BitDistillSFTTrainer(pl.LightningModule):
         self.total_tokens_seen = 0
         
         # Initialize models
-        self.teacher = load_model(model_name)
+        self.teacher = load_bitlab_model(model_name)
         self.student = copy.deepcopy(self.teacher)
         
         # Prepare models
@@ -663,18 +663,18 @@ class BitDistillSFTTrainer(pl.LightningModule):
             loss += self.gamma_attention * loss_dict["attention_loss"]
         
         # Standard logging (step-based)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log("train/ce_loss", loss_dict["ce_loss"], on_step=True, on_epoch=True)
-        self.log("train/kl_loss", loss_dict["kl_loss"], on_step=True, on_epoch=True)
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("train_ce_loss", loss_dict["ce_loss"], on_step=True, on_epoch=True)
+        self.log("train_kl_loss", loss_dict["kl_loss"], on_step=True, on_epoch=True)
         
         # Token-based logging
-        self.log("train_tokens/loss", loss, on_step=True, on_epoch=False, prog_bar=False)
-        self.log("train_tokens/ce_loss", loss_dict["ce_loss"], on_step=True, on_epoch=False, prog_bar=False)
-        self.log("train_tokens/kl_loss", loss_dict["kl_loss"], on_step=True, on_epoch=False, prog_bar=False)
+        self.log("train_tokens_loss", loss, on_step=True, on_epoch=False, prog_bar=False)
+        self.log("train_tokens_ce_loss", loss_dict["ce_loss"], on_step=True, on_epoch=False, prog_bar=False)
+        self.log("train_tokens_kl_loss", loss_dict["kl_loss"], on_step=True, on_epoch=False, prog_bar=False)
         
         if "attention_loss" in loss_dict:
-            self.log("train/attention_loss", loss_dict["attention_loss"], on_step=True, on_epoch=True)
-            self.log("train_tokens/attention_loss", loss_dict["attention_loss"], 
+            self.log("train_attention_loss", loss_dict["attention_loss"], on_step=True, on_epoch=True)
+            self.log("train_tokens_attention_loss", loss_dict["attention_loss"], 
                     on_step=True, on_epoch=False, prog_bar=False)
         
         # Log total tokens seen
@@ -702,18 +702,18 @@ class BitDistillSFTTrainer(pl.LightningModule):
             loss += self.gamma_attention * loss_dict["attention_loss"]
         
         # Standard logging
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/ce_loss", loss_dict["ce_loss"], on_step=False, on_epoch=True)
-        self.log("val/kl_loss", loss_dict["kl_loss"], on_step=False, on_epoch=True)
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val_ce_loss", loss_dict["ce_loss"], on_step=False, on_epoch=True)
+        self.log("val_kl_loss", loss_dict["kl_loss"], on_step=False, on_epoch=True)
         
         # Token-based logging
-        self.log("val_tokens/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
-        self.log("val_tokens/ce_loss", loss_dict["ce_loss"], on_step=False, on_epoch=True, prog_bar=False)
-        self.log("val_tokens/kl_loss", loss_dict["kl_loss"], on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val_tokens_loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val_tokens_ce_loss", loss_dict["ce_loss"], on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val_tokens_kl_loss", loss_dict["kl_loss"], on_step=False, on_epoch=True, prog_bar=False)
         
         if "attention_loss" in loss_dict:
-            self.log("val/attention_loss", loss_dict["attention_loss"], on_step=False, on_epoch=True)
-            self.log("val_tokens/attention_loss", loss_dict["attention_loss"], 
+            self.log("val_attention_loss", loss_dict["attention_loss"], on_step=False, on_epoch=True)
+            self.log("val_tokens_attention_loss", loss_dict["attention_loss"], 
                     on_step=False, on_epoch=True, prog_bar=False)
         
         return loss
