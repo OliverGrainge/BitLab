@@ -114,21 +114,23 @@ class BitDistillPreTrainer(pl.LightningModule):
         model_name: str, 
         learning_rate: float = 5e-5, 
         weight_decay: float = 0.0, 
-        quant_patterns: List[str] = None, 
+        target_quant_modules: List[str] = None, 
+        target_subln_modules: List[str] = None,
         quant_type: str = "bitnet",
     ):
         super().__init__()
         self.save_hyperparameters()
         
         # Hyperparameter Validation
-        assert quant_patterns is not None and len(quant_patterns) > 0, \
-            "Must specify at least one layer pattern to quantize in quant_patterns"
+        assert target_quant_modules is not None and len(target_quant_modules) > 0, \
+            "Must specify at least one layer pattern to quantize in target_quant_modules"
         
         # Store hyperparameters
         self.model_name = str(model_name)
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
-        self.quant_patterns = quant_patterns
+        self.target_quant_modules = target_quant_modules
+        self.target_subln_modules = target_subln_modules
         self.quant_type = quant_type
         
         # Token tracking
@@ -149,7 +151,7 @@ class BitDistillPreTrainer(pl.LightningModule):
         modules_to_replace = []
         for name, module in self.model.named_modules(): 
             if isinstance(module, torch.nn.Linear):
-                if any(pattern in name for pattern in self.quant_patterns):
+                if any(pattern in name for pattern in self.target_quant_modules):
                     modules_to_replace.append((name, module))
         
         print(f"Replacing {len(modules_to_replace)} Linear layers with BitLinear")
@@ -157,6 +159,16 @@ class BitDistillPreTrainer(pl.LightningModule):
         # Replace the modules
         for name, module in modules_to_replace:
             bitlinear = BitLinear.from_linear(module, quant_type=self.quant_type)
+            if any(pattern in name for pattern in self.target_subln_modules):
+                module = nn.Sequential(RMSNormNoParam(bitlinear.in_features), bitlinear)
+            else:
+                module = bitlinear
+            # Navigate to parent and replace the module
+            parts = name.split('.')
+            parent = self.model
+            for part in parts[:-1]:
+                parent = getattr(parent, part)
+            setattr(parent, parts[-1], module)
             module = nn.Sequential(RMSNormNoParam(bitlinear.in_features), bitlinear)
             # Navigate to parent and replace the module
             parts = name.split('.')
