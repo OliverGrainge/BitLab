@@ -117,7 +117,7 @@ def download_fineweb_edu(
 
 
 def download_falcon_refinedweb(
-    num_samples: int = 5000000,
+    num_samples: int = 1000000,
     buffer_size: int = 10000,
     seed: int = 0,
 ):

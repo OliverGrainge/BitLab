@@ -7,8 +7,8 @@ experiment_name: bitdistill_qwen3_06B_stage1_pretrain
 datamodule: 
   type: falcon-refinedweb-pt
   tokenizer_name: qwen3_06B_pt
-  batch_size: 6
-  num_workers: 6
+  batch_size: 18
+  num_workers: 8
   max_length: 1024  # Truncate sequences to prevent OOM errors
 
 trainer: 
@@ -45,9 +45,10 @@ checkpoint:
 pl_trainer: 
   max_epochs: 100  # Stage 1 typically needs fewer epochs
   accelerator: gpu 
-  devices: 1
+  devices: 2
   precision: bf16-true
-  accumulate_grad_batches: 4  # Effective batch size = 4 * 4 = 16
+  enable_progress_bar: false
+  strategy: ddp  # Use DDP for multi-GPU training
   
   # Optional: Add validation
   # val_check_interval: 0.25  # Validate 4 times per epoch

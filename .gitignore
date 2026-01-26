@@ -4,3 +4,5 @@ logs/
 checkpoints
 data/
 scratch.py
+slurm/*.out
+slurm/*.err
