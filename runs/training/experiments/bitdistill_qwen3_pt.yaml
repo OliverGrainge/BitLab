@@ -18,8 +18,8 @@ trainer:
   weight_decay: 0.00
   
   # Quantization settings
-  target_quant_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "mlp"]  # Quantize attention and MLP layers
-  target_subln_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "mlp"]  # SubLN for attention and MLP layers
+  target_quant_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]  # Quantize attention and MLP layers
+  target_subln_modules: ["o_proj", "down_proj"]  
   quant_type: bitnet
 
 logger: 

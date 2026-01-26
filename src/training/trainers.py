@@ -169,13 +169,6 @@ class BitDistillPreTrainer(pl.LightningModule):
             for part in parts[:-1]:
                 parent = getattr(parent, part)
             setattr(parent, parts[-1], module)
-            module = nn.Sequential(RMSNormNoParam(bitlinear.in_features), bitlinear)
-            # Navigate to parent and replace the module
-            parts = name.split('.')
-            parent = self.model
-            for part in parts[:-1]:
-                parent = getattr(parent, part)
-            setattr(parent, parts[-1], module)
 
     def forward(self, input_ids, attention_mask):
         """Forward pass through model"""
