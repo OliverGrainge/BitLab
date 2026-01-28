@@ -35,11 +35,31 @@ def download_qwen3_06B_pt():
     print(f"Downloaded {model_name} successfully")
 
 
+def download_smollm2_135m_pt(): 
+    model_name = "HuggingFaceTB/SmolLM2-135M"
+    # Use snapshot_download to ensure all files (config, tokenizer, model) are cached
+    snapshot_download(repo_id=model_name, repo_type="model")
+    print(f"Downloaded {model_name} successfully")
+
+
+def download_smollm2_360m_pt(): 
+    model_name = "HuggingFaceTB/SmolLM2-360M"
+    # Use snapshot_download to ensure all files (config, tokenizer, model) are cached
+    snapshot_download(repo_id=model_name, repo_type="model")
+    print(f"Downloaded {model_name} successfully")
+
+
+
+        
+
+
 
 DOWNLOAD_MODELS_REGISTRY = {
     "qwen2_5_05B_instruct": download_qwen2_5_05B_instruct,
     "qwen2_5_05B_pt": download_qwen2_5_05B_pt,
     "qwen3_06B_pt": download_qwen3_06B_pt,
+    "smollm2_135m_pt": download_smollm2_135m_pt,
+    "smollm2_360m_pt": download_smollm2_360m_pt,
 }
 
 

@@ -2,7 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
-from datasets import load_dataset, Dataset, load_from_disk
+from datasets import Dataset, load_dataset, load_from_disk
 
 from src.data import dataset
 from src.utils import data_path, get_data_dir
@@ -50,8 +50,8 @@ def download_alpaca():
 
 
 def download_fineweb_edu(
-    num_samples: int = 5000000,
-    buffer_size: int = 10000,
+    num_samples: int = 400000,
+    buffer_size: int = 1000,
     seed: int = 0,
 ):
     """
@@ -66,7 +66,7 @@ def download_fineweb_edu(
     Returns:
         A Hugging Face Dataset object loaded from disk.
     """
-    from datasets import load_dataset, Dataset
+    from datasets import Dataset, load_dataset
 
     output_dir = data_path("fineweb-edu")
 
@@ -117,8 +117,8 @@ def download_fineweb_edu(
 
 
 def download_falcon_refinedweb(
-    num_samples: int = 1000000,
-    buffer_size: int = 10000,
+    num_samples: int = 100000,
+    buffer_size: int = 1000,
     seed: int = 0,
 ):
     """

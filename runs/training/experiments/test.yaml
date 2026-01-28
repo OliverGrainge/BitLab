@@ -5,7 +5,7 @@
 datamodule: 
   type: falcon-refinedweb-pt
   tokenizer_name: qwen3_06B_pt
-  batch_size: 8
+  batch_size: 2
   num_workers: 8
   max_length: 256  # Truncate sequences to prevent OOM errors
 
@@ -20,26 +20,7 @@ trainer:
   target_subln_modules: ["o_proj", "down_proj"]  
   quant_type: bitnet
 
-logger: 
-  type: tensorboard 
-  save_dir: logs/tensorboard/bitdistill
-  name: bitdistill_qwen3_experiment  # Optional: creates subdirectory
-  version: continued-pretrain-medium-lr  # This will be the folder name instead of version_N
 
-#logger: 
-#  type: wandb
-#  project: bitdistill_qwen3_06B  # WandB project name (like workspace)
-#  name: continued-pretrain-1  # Run name (equivalent to TensorBoard's version)
-#  save_dir: logs/wandb/bitdistill_qwen3_06B  # Optional: local save directory
-
-checkpoint: 
-  monitor: train_loss 
-  mode: min 
-  save_top_k: 3  # Save top 3 best checkpoints (based on train_loss)
-  dirpath: checkpoints/bitdistill/qwen3_06B/continued-pretrain-1
-  filename: "qwen3_06B-{step}-{train_loss:.4f}"  # Include step and loss in filename
-  every_n_train_steps: 2000  # Checkpoint every N training steps (adjust as needed)
-  save_last: true  # 
 
 pl_trainer: 
   max_epochs: 100  # Stage 1 typically needs fewer epochs

@@ -1,9 +1,10 @@
 from pytorch_lightning import LightningDataModule
-from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import DataLoader
 
-from src.models.tokenizers import load_bitlab_tokenizer
 from src.data.dataset import load_bitlab_dataset
+from src.models.tokenizers import load_bitlab_tokenizer
+
 
 class SFTDataModule(LightningDataModule): 
     def __init__(self, tokenizer_name: str, dataset_name: str, batch_size: int = 16, num_workers: int = 4, max_length: int = None):
@@ -94,7 +95,6 @@ class SFTDataModule(LightningDataModule):
         }
 
 
-
 class AlpacaSFTDataModule(SFTDataModule):
     def __init__(self, tokenizer_name: str, batch_size: int = 16, num_workers: int = 4, max_length: int = None):
         super().__init__(tokenizer_name, "alpaca", batch_size, num_workers, max_length)
@@ -103,6 +103,7 @@ class AlpacaSFTDataModule(SFTDataModule):
 class MNLISFTDataModule(SFTDataModule): 
     def __init__(self, tokenizer_name: str, batch_size: int = 16, num_workers: int = 4, max_length: int = None):
         super().__init__(tokenizer_name, "mnli", batch_size, num_workers, max_length)
+
 
 class PretrainingDataModule(LightningDataModule):
     """
@@ -135,6 +136,9 @@ class PretrainingDataModule(LightningDataModule):
 
     def setup(self, stage: str):
         self.tokenizer = load_bitlab_tokenizer(self.tokenizer_name)
+        # Set pad_token if not already set (required for padding)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         self.dataset = load_bitlab_dataset(self.dataset_name, split="train")
 
     def train_dataloader(self):
@@ -246,53 +250,3 @@ def load_bitlab_datamodule(datamodule_name: str, **kwargs):
         raise ValueError(f"DataModule {datamodule_name} not found")
     return DATALOADERS_REGISTRY[datamodule_name](**kwargs)
 
-
-if __name__ == "__main__":
-    # Test the pretraining data module
-    datamodule = FineWebEduPTDataModule(
-        tokenizer_name="qwen2_5_05_instruct",
-        batch_size=4,
-        num_workers=0,
-        max_length=128,
-    )
-    datamodule.setup("fit")
-    tokenizer = datamodule.tokenizer
-    dl = datamodule.train_dataloader()
-    
-    print("=== PRETRAINING DATA MODULE TEST ===\n")
-    
-    for batch_idx, batch in enumerate(dl):
-        if batch_idx >= 2:  # Only show 2 batches
-            break
-            
-        print(f"\n{'='*60}")
-        print(f"BATCH {batch_idx + 1}")
-        print(f"{'='*60}")
-        
-        # Show first example in batch
-        input_ids = batch["input_ids"][0]
-        labels = batch["labels"][0]
-        attention_mask = batch["attention_mask"][0]
-        
-        print(f"\nSequence length: {len(input_ids)}")
-        print(f"Non-padding tokens: {attention_mask.sum().item()}")
-        print(f"Training tokens (labels != -100): {(labels != -100).sum().item()}")
-        
-        # Decode full sequence
-        full_text = tokenizer.decode(input_ids, skip_special_tokens=False)
-        print("\n=== FULL DECODED TEXT ===")
-        print(full_text[:500] + "..." if len(full_text) > 500 else full_text)
-        
-        # Show token-by-token for first 20 tokens
-        print("\n=== TOKEN-BY-TOKEN BREAKDOWN (first 20 tokens) ===")
-        for i in range(min(20, len(input_ids))):
-            token_id = input_ids[i].item()
-            label_id = labels[i].item()
-            is_padding = attention_mask[i].item() == 0
-            
-            token_text = tokenizer.decode([token_id], skip_special_tokens=False)
-            status = "PAD" if is_padding else "TRAIN"
-            
-            print(f"{i:3d} | {status:5s} | Token ID: {token_id:5d} | Label: {label_id:5d} | {repr(token_text)}")
-        
-        print("\n" + "="*60)

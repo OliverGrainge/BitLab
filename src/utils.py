@@ -1,6 +1,7 @@
 import os
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 def load_env():
@@ -11,6 +12,7 @@ def load_env():
     """
     try:
         from dotenv import load_dotenv
+
         # Look for .env file in the repository root (parent of src/)
         repo_root = Path(__file__).parent.parent
         env_path = repo_root / '.env'

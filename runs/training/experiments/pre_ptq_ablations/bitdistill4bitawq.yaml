@@ -1,0 +1,42 @@
+# BitDistill Stage 1: Continual Pretraining with BitLinear Quantization
+# Qwen3-0.6B with MLP and attention layer quantization
+# This stage uses only cross-entropy loss to adapt the quantized model to the data distribution
+
+datamodule: 
+  type: fineweb-edu-pt
+  tokenizer_name: smollm2_360m_pt
+  batch_size: 16
+  num_workers: 0
+  max_length: 256  # Truncate sequences to prevent OOM errors
+
+trainer: 
+  type: bitdistillawqpretrainer  # Stage 1: Pretraining only
+  model_name: smollm2_360m_pt
+  learning_rate: 1e-4
+  weight_decay: 0.0
+  
+  # Quantization settings
+  target_quant_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]  # Quantize attention and MLP layers
+  target_subln_modules: ["o_proj", "down_proj"]  
+  quant_type: bitnet
+  calibration_samples: 256 
+  n_bit_ptq: 4
+
+logger: 
+  type: tensorboard 
+  save_dir: logs/tensorboard/bitdistill/bitdistill_smollm2_360m
+  name: ptq_ablations # Optional: creates subdirectory
+  version: 4-bit-awq-long # This will be the folder name instead of version_N
+
+
+pl_trainer: 
+  max_epochs: 4  # Stage 1 typically needs fewer epochs
+  accelerator: gpu 
+  #devices: 2
+  precision: bf16-true
+  enable_progress_bar: true
+  #strategy: ddp  # Use DDP for multi-GPU training
+  
+  # Optional: Add validation
+  # val_check_interval: 0.25  # Validate 4 times per epoch
+  # limit_val_batches: 100  # Limit validation to 100 batches

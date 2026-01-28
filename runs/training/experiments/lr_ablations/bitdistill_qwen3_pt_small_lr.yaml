@@ -2,20 +2,18 @@
 # Qwen3-0.6B with MLP and attention layer quantization
 # This stage uses only cross-entropy loss to adapt the quantized model to the data distribution
 
-experiment_name: bitdistill_qwen3_06B_stage1_pretrain
-
 datamodule: 
   type: falcon-refinedweb-pt
   tokenizer_name: qwen3_06B_pt
-  batch_size: 18
+  batch_size: 8
   num_workers: 8
-  max_length: 1024  # Truncate sequences to prevent OOM errors
+  max_length: 256  # Truncate sequences to prevent OOM errors
 
 trainer: 
   type: bitdistillpretrainer  # Stage 1: Pretraining only
   model_name: qwen3_06B_pt
   learning_rate: 5e-5
-  weight_decay: 0.00
+  weight_decay: 0.01
   
   # Quantization settings
   target_quant_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]  # Quantize attention and MLP layers
@@ -26,7 +24,7 @@ logger:
   type: tensorboard 
   save_dir: logs/tensorboard/bitdistill
   name: bitdistill_qwen3_experiment  # Optional: creates subdirectory
-  version: continued-pretrain-1  # This will be the folder name instead of version_N
+  version: continued-pretrain-small-lr  # This will be the folder name instead of version_N
 
 #logger: 
 #  type: wandb
@@ -46,10 +44,10 @@ checkpoint:
 pl_trainer: 
   max_epochs: 100  # Stage 1 typically needs fewer epochs
   accelerator: gpu 
-  devices: 2
+  #devices: 2
   precision: bf16-true
-  enable_progress_bar: false
-  strategy: ddp  # Use DDP for multi-GPU training
+  enable_progress_bar: true
+  #strategy: ddp  # Use DDP for multi-GPU training
   
   # Optional: Add validation
   # val_check_interval: 0.25  # Validate 4 times per epoch

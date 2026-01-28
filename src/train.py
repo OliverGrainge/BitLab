@@ -1,15 +1,17 @@
-from src.utils import load_env 
+from src.utils import load_env
+
 load_env()
 
-from src.training.trainers import load_bitlab_trainer 
-from src.training.dataloaders import load_bitlab_datamodule
-from src.utils import load_config 
-import pytorch_lightning as pl
-import sys 
-import os 
+import os
+import sys
 from typing import Optional
-import torch 
 
+import pytorch_lightning as pl
+import torch
+
+from src.training.dataloaders import load_bitlab_datamodule
+from src.training.trainers import load_bitlab_trainer
+from src.utils import load_config
 
 
 def load_datamodule(config: dict): 
@@ -23,7 +25,10 @@ def load_trainer(config: dict):
     return load_bitlab_trainer(trainer_type, **trainer_cfg)
 
 def load_logger(config: dict): 
-    logger_cfg = config["logger"].copy()  # Don't modify original config
+    logger_cfg = config.get("logger")
+    if logger_cfg is None:
+        return None
+    logger_cfg = logger_cfg.copy()  # Don't modify original config
     logger_type = logger_cfg.pop("type", None) 
 
     if logger_type == "tensorboard":
@@ -34,7 +39,9 @@ def load_logger(config: dict):
         raise ValueError(f"Logger {logger_type} not found")
 
 def load_checkpointer(config: dict): 
-    checkpointer_cfg = config["checkpoint"] 
+    checkpointer_cfg = config.get("checkpoint")
+    if checkpointer_cfg is None:
+        return None
     return pl.callbacks.ModelCheckpoint(**checkpointer_cfg)
 
 def load_pl_trainer(config: dict, logger: Optional["pl.loggers.logger.Logger"] = None, callbacks: Optional[list] = None):
@@ -51,11 +58,13 @@ def main():
     config = load_config(config_path)
     datamodule = load_datamodule(config) 
     trainer = load_trainer(config) 
-    logger = load_logger(config)    
-    callbacks = []
-    if "checkpoint" in config:
-        checkpointer = load_checkpointer(config)
-        callbacks.append(checkpointer)
+    # Compile the model, not the Lightning module, to avoid pickling issues with multiprocessing
+    logger = load_logger(config)
+    if logger is not None:
+        logger.log_hyperparams(trainer.hparams)
+    trainer.model = torch.compile(trainer.model)
+    checkpointer = load_checkpointer(config)
+    callbacks = [checkpointer] if checkpointer is not None else None
     pl_trainer = load_pl_trainer(config, logger, callbacks)
     pl_trainer.fit(trainer, datamodule) 
 

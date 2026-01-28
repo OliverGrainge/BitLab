@@ -1,4 +1,5 @@
-from src.utils import load_env 
+from src.utils import load_env
+
 load_env()
 
 
@@ -6,8 +7,9 @@ import argparse
 import sys
 from typing import Iterable, Sequence
 
-from src.data.download import download_bitlab_dataset, DOWNLOAD_DATASETS_REGISTRY
-from src.models.download import download_bitlab_model, DOWNLOAD_MODELS_REGISTRY
+from src.data.download import (DOWNLOAD_DATASETS_REGISTRY,
+                               download_bitlab_dataset)
+from src.models.download import DOWNLOAD_MODELS_REGISTRY, download_bitlab_model
 
 
 def available_datasets() -> Sequence[str]:

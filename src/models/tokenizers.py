@@ -1,5 +1,6 @@
-from transformers import AutoTokenizer
 import os
+
+from transformers import AutoTokenizer
 
 
 def _get_cache_dir():
@@ -19,9 +20,6 @@ def load_qwen2_5_05B_pt_tokenizer():
     cache_dir = _get_cache_dir()
     tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True, cache_dir=cache_dir)
     return tokenizer
-
-
-
     
 def load_qwen3_06B_pt_tokenizer():
     model_name = "Qwen/Qwen3-0.6B"
@@ -42,10 +40,24 @@ def load_qwen3_06B_pt_tokenizer():
         trust_remote_code=False,
     )
 
+def load_smollm2_135m_pt_tokenizer(): 
+    model_name = "HuggingFaceTB/SmolLM2-135M"
+    cache_dir = _get_cache_dir()
+    tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True, cache_dir=cache_dir)
+    return tokenizer
+
+def load_smollm2_360m_pt_tokenizer(): 
+    model_name = "HuggingFaceTB/SmolLM2-360M"
+    cache_dir = _get_cache_dir()
+    tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True, cache_dir=cache_dir)
+    return tokenizer
+
 TOKENIZERS_REGISTRY = {
     "qwen2_5_05B_instruct": load_qwen2_5_05B_instruct_tokenizer,
     "qwen2_5_05B_pt": load_qwen2_5_05B_pt_tokenizer,
     "qwen3_06B_pt": load_qwen3_06B_pt_tokenizer,
+    "smollm2_135m_pt": load_smollm2_135m_pt_tokenizer,
+    "smollm2_360m_pt": load_smollm2_360m_pt_tokenizer,
 }
 
 def load_bitlab_tokenizer(tokenizer_name: str): 

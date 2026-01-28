@@ -1,5 +1,6 @@
+import os
+
 from transformers import AutoModelForCausalLM
-import os 
 
 
 def load_qwen2_5_05B_instruct(): 
@@ -19,10 +20,23 @@ def load_qwen3_06B_pt():
     return model
 
 
+def load_smollm2_135m_pt(): 
+    model_name = "HuggingFaceTB/SmolLM2-135M"
+    model = AutoModelForCausalLM.from_pretrained(model_name, local_files_only=True)
+    return model
+
+
+def load_smollm2_360m_pt(): 
+    model_name = "HuggingFaceTB/SmolLM2-360M"
+    model = AutoModelForCausalLM.from_pretrained(model_name, local_files_only=True)
+    return model
+
 MODELS_REGISTRY = {
     "qwen2_5_05B_instruct": load_qwen2_5_05B_instruct,
     "qwen2_5_05B_pt": load_qwen2_5_05B_pt,
     "qwen3_06B_pt": load_qwen3_06B_pt,
+    "smollm2_135m_pt": load_smollm2_135m_pt,
+    "smollm2_360m_pt": load_smollm2_360m_pt,
 }
 
 def load_bitlab_model(model_name: str): 
