@@ -15,7 +15,7 @@ def load_qwen2_5_05B_pt():
 
 
 def load_qwen3_06B_pt(): 
-    model_name = "Qwen/Qwen3-0.6B"
+    model_name = "Qwen/Qwen3-0.6B-Base"
     model = AutoModelForCausalLM.from_pretrained(model_name, local_files_only=True)
     return model
 

@@ -22,7 +22,7 @@ def load_qwen2_5_05B_pt_tokenizer():
     return tokenizer
     
 def load_qwen3_06B_pt_tokenizer():
-    model_name = "Qwen/Qwen3-0.6B"
+    model_name = "Qwen/Qwen3-0.6B-Base"
     cache_dir = _get_cache_dir()
     # Point to the *local snapshot*, not the hub ID
     snap = os.path.join(

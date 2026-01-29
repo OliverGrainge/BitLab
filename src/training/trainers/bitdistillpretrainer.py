@@ -43,15 +43,11 @@ class BitDistillPreTrainer(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         
-        # Hyperparameter Validation
-        assert target_quant_modules is not None and len(target_quant_modules) > 0, \
-            "Must specify at least one layer pattern to quantize in target_quant_modules"
-        
-        # Store hyperparameters
+        # Store hyperparameters (empty target_quant_modules = no quantization, train as-is)
         self.model_name = str(model_name)
         self.learning_rate = float(learning_rate)
         self.weight_decay = float(weight_decay)
-        self.target_quant_modules = target_quant_modules
+        self.target_quant_modules = target_quant_modules or []
         self.target_subln_modules = target_subln_modules or []
         self.quant_type = quant_type
         
@@ -70,7 +66,10 @@ class BitDistillPreTrainer(pl.LightningModule):
     def get_target_linear_modules(self) -> List[Tuple[str, nn.Module, bool]]:
         """
         Returns a list of (module_name, module, needs_subln) tuples for quantization.
+        Returns [] when target_quant_modules is empty (no quantization applied).
         """
+        if not self.target_quant_modules:
+            return []
         results = []
         for name, module in self.model.named_modules():
             if not isinstance(module, nn.Linear):
@@ -90,8 +89,10 @@ class BitDistillPreTrainer(pl.LightningModule):
         setattr(parent, parts[-1], module)
 
     def prepare_qat(self) -> None:
-        """Replace Linear layers with BitLinear for Quantization-Aware Training."""
+        """Replace Linear layers with BitLinear for Quantization-Aware Training. No-op when target_quant_modules is empty."""
         modules_to_replace = self.get_target_linear_modules()
+        if not modules_to_replace:
+            return
         iterator = modules_to_replace
         # Only show tqdm bar on global rank zero to avoid duplicates
         if getattr(self, "trainer", None) is None or self.trainer.is_global_zero:

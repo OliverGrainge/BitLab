@@ -29,7 +29,7 @@ def download_qwen3_06B_pt():
     Download the Qwen/Qwen3-0.6B model and tokenizer from the Hugging Face Hub.
     Only downloads files; does not load model into memory.
     """
-    model_name = "Qwen/Qwen3-0.6B"
+    model_name = "Qwen/Qwen3-0.6B-Base"
     # Use snapshot_download to ensure all files (config, tokenizer, model) are cached
     snapshot_download(repo_id=model_name, repo_type="model")
     print(f"Downloaded {model_name} successfully")
