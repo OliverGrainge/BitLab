@@ -49,7 +49,10 @@ logger:
 #  save_last: true  # 
 
 pl_trainer: 
-  max_epochs: 10  # Stage 1 typically needs fewer epochs
+  # Duration: use max_epochs OR max_tokens. Tokens per step = batch_size × max_length (sequence length).
+  # Here: 8 × 256 = 2048 tokens/step → 10_000_000 tokens ≈ 4882 steps.
+  # max_epochs: 10  # epoch-based (ignored if max_tokens is set)
+  max_tokens: 10_000_000  # ~10M tokens → ~4882 steps
   accelerator: gpu 
   #devices: 2
   precision: bf16-true

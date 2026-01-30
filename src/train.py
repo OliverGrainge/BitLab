@@ -44,8 +44,34 @@ def load_checkpointer(config: dict):
         return None
     return pl.callbacks.ModelCheckpoint(**checkpointer_cfg)
 
+def _resolve_max_tokens_to_max_steps(config: dict) -> None:
+    """If pl_trainer has max_tokens, set max_steps from it and clear max_epochs so step limit applies."""
+    pl_cfg = config.get("pl_trainer") or {}
+    max_tokens = pl_cfg.get("max_tokens")
+    if max_tokens is None:
+        return
+    dm_cfg = config.get("datamodule") or {}
+    batch_size = int(dm_cfg.get("batch_size", 1))
+    max_length = int(dm_cfg.get("max_length", 256))
+    accumulate_grad_batches = int(pl_cfg.get("accumulate_grad_batches", 1))
+    tokens_per_step = batch_size * max_length * accumulate_grad_batches
+    if tokens_per_step <= 0:
+        raise ValueError("tokens_per_step must be positive (batch_size * max_length * accumulate_grad_batches)")
+    max_steps = int(max_tokens // tokens_per_step)
+    if max_steps < 1:
+        raise ValueError(
+            f"max_tokens={max_tokens} yields max_steps={max_steps} (tokens_per_step={tokens_per_step}). "
+            "Increase max_tokens or use max_epochs / max_steps instead."
+        )
+    config["pl_trainer"]["max_steps"] = max_steps
+    config["pl_trainer"]["max_epochs"] = -1  # Let max_steps be the limit
+    # Remove max_tokens so Trainer doesn't see an unknown kwarg
+    config["pl_trainer"].pop("max_tokens", None)
+
+
 def load_pl_trainer(config: dict, logger: Optional["pl.loggers.logger.Logger"] = None, callbacks: Optional[list] = None):
-    pl_trainer_cfg = config["pl_trainer"] 
+    _resolve_max_tokens_to_max_steps(config)
+    pl_trainer_cfg = config["pl_trainer"]
     pl_trainer = pl.Trainer(**pl_trainer_cfg, logger=logger, callbacks=callbacks)
     return pl_trainer
 

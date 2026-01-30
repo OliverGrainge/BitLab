@@ -49,7 +49,9 @@ trainer:
 #  save_last: true  # 
 
 pl_trainer: 
+  # Training duration: use either max_epochs or max_tokens (tokens = steps * batch_size * max_length * accumulate_grad_batches)
   max_epochs: 100  # Stage 1 typically needs fewer epochs
+  # max_tokens: 1_000_000_000  # e.g. 1B tokens; overrides max_epochs, sets max_steps automatically
   accelerator: gpu 
   #devices: 2
   precision: bf16-true
