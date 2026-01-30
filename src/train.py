@@ -62,7 +62,7 @@ def main():
     logger = load_logger(config)
     if logger is not None:
         logger.log_hyperparams(trainer.hparams)
-    trainer.model = torch.compile(trainer.model)
+    #trainer.model = torch.compile(trainer.model)
     checkpointer = load_checkpointer(config)
     callbacks = [checkpointer] if checkpointer is not None else None
     pl_trainer = load_pl_trainer(config, logger, callbacks)

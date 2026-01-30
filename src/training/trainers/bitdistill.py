@@ -405,9 +405,8 @@ class BitDistillPreTrainer(pl.LightningModule):
         modules_to_replace = self.get_target_linear_modules()
         if not modules_to_replace:
             return
-        iterator = modules_to_replace
-        if getattr(self, "trainer", None) is None or self.trainer.is_global_zero:
-            iterator = tqdm(modules_to_replace, desc="[QAT] Quantizing BitLinear layers")
+
+        iterator = tqdm(modules_to_replace, desc="[QAT] Quantizing BitLinear layers")
         for name, module, needs_subln in iterator:
             bitlinear = BitLinear.from_linear(module, quant_type=self.quant_type)
             if needs_subln:
@@ -611,8 +610,15 @@ class BitDistillPreTrainer(pl.LightningModule):
         # This ensures the model has the right layers (BitLinear, RMSNorm)
         # to receive the checkpoint's state dict
         self.prepare_qat()
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """
+        Called before saving state dict to checkpoint.
+        Prepares model structure (BitLinear/RMSNorm) to match checkpoint.
+        """
         
-        # Move to appropriate dtype (state dict loading will happen after this)
-        if hasattr(self, 'trainer') and self.trainer is not None:
-            dtype = self._get_trainer_compute_dtype()
-            self.model.to(dtype=dtype)
+        has_qat = any(isinstance(m, BitLinear) for m in self.model.modules())
+        if not has_qat: 
+            self.prepare_qat()
+        super().on_save_checkpoint(checkpoint)
+        
