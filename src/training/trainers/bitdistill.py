@@ -9,6 +9,7 @@ Single trainer with configurable PTQ initialization methods:
 """
 
 from typing import Any, Dict, List, Optional, Tuple
+import time
 
 import pytorch_lightning as pl
 import torch
@@ -262,6 +263,9 @@ class BitDistillPreTrainer(pl.LightningModule):
         ptq_method: Optional[str] = None,
         calibration_samples: Optional[int] = None,
         n_bit_ptq: Optional[int] = None,
+        log_grad_norm: bool = True,
+        log_weight_stats: bool = True,
+        log_gpu_memory: bool = True,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -272,6 +276,9 @@ class BitDistillPreTrainer(pl.LightningModule):
         self.target_subln_modules = target_subln_modules or []
         self.quant_type = quant_type
         self.ptq_method = ptq_method
+        self.log_grad_norm = log_grad_norm
+        self.log_weight_stats = log_weight_stats
+        self.log_gpu_memory = log_gpu_memory
 
         # Only convert to int if not None, otherwise keep as None.
         self.calibration_samples = (
@@ -280,6 +287,10 @@ class BitDistillPreTrainer(pl.LightningModule):
         self.n_bit_ptq = int(n_bit_ptq) if n_bit_ptq is not None else None
 
         self.total_tokens_seen = 0
+        self.training_start_time = None
+        self.last_log_time = None
+        self.tokens_since_last_log = 0
+        self._logged_model_stats = False
         
         # Track whether we're loading from checkpoint
         self._loaded_from_checkpoint = False
@@ -420,21 +431,6 @@ class BitDistillPreTrainer(pl.LightningModule):
                 new_module = bitlinear
             self._set_module_by_name(name, new_module)
 
-    def _set_trainable_quant_layers_only(self) -> None:
-        """Freeze all parameters, then unfreeze only BitLinear."""
-        for p in self.model.parameters():
-            p.requires_grad = False
-        for _, module in self.model.named_modules():
-            if isinstance(module, BitLinear):
-                for p in module.parameters():
-                    p.requires_grad = True
-            elif isinstance(module, nn.Sequential):
-                for child in module:
-                    if isinstance(child, BitLinear):
-                        for p in child.parameters():
-                            p.requires_grad = True
-                        break
-
     def _get_trainer_compute_dtype(self) -> torch.dtype:
         p = getattr(self.trainer, "precision", None)
         if p is None:
@@ -452,6 +448,116 @@ class BitDistillPreTrainer(pl.LightningModule):
             return torch.float16
         return torch.float32
 
+    def _log_quantization_stats(self) -> None:
+        """Log statistics about quantized layers."""
+        total_layers = 0
+        quantized_layers = 0
+        total_params = 0
+        quantized_params = 0
+        
+        for module in self.model.modules():
+            if isinstance(module, nn.Linear):
+                total_layers += 1
+                total_params += module.weight.numel()
+            if isinstance(module, BitLinear):
+                quantized_layers += 1
+                quantized_params += module.weight.numel()
+        
+        if total_layers > 0:
+            self.log("model/total_layers", float(total_layers), on_step=True, on_epoch=False)
+            self.log("model/quantized_layers", float(quantized_layers), on_step=True, on_epoch=False)
+            self.log("model/quantization_ratio", float(quantized_layers) / float(total_layers), 
+                    on_step=True, on_epoch=False)
+        
+        if total_params > 0:
+            self.log("model/total_params_M", float(total_params) / 1e6, on_step=True, on_epoch=False)
+            self.log("model/quantized_params_M", float(quantized_params) / 1e6, on_step=True, on_epoch=False)
+            self.log("model/param_quantization_ratio", float(quantized_params) / float(total_params),
+                    on_step=True, on_epoch=False)
+
+    def _log_weight_statistics(self) -> None:
+        """Log weight distribution statistics for BitLinear layers."""
+        if not self.log_weight_stats:
+            return
+        
+        weight_means = []
+        weight_stds = []
+        weight_max_abs = []
+        
+        for module in self.model.modules():
+            if isinstance(module, BitLinear):
+                w = module.weight.data.detach().float()
+                weight_means.append(w.mean().item())
+                weight_stds.append(w.std().item())
+                weight_max_abs.append(w.abs().max().item())
+        
+        if weight_means:
+            self.log("weights/mean_avg", sum(weight_means) / len(weight_means), 
+                    on_step=False, on_epoch=True)
+            self.log("weights/std_avg", sum(weight_stds) / len(weight_stds),
+                    on_step=False, on_epoch=True)
+            self.log("weights/max_abs_avg", sum(weight_max_abs) / len(weight_max_abs),
+                    on_step=False, on_epoch=True)
+
+    def _log_gradient_norms(self) -> None:
+        """Log gradient norms for monitoring training stability."""
+        if not self.log_grad_norm:
+            return
+        
+        total_norm = 0.0
+        num_params = 0
+        max_grad = 0.0
+        
+        for p in self.model.parameters():
+            if p.grad is not None:
+                param_norm = p.grad.data.norm(2).item()
+                total_norm += param_norm ** 2
+                num_params += 1
+                max_grad = max(max_grad, p.grad.data.abs().max().item())
+        
+        if num_params > 0:
+            total_norm = total_norm ** 0.5
+            self.log("gradients/global_norm", total_norm, on_step=True, on_epoch=False, prog_bar=False)
+            self.log("gradients/max_value", max_grad, on_step=True, on_epoch=False, prog_bar=False)
+
+    def _log_gpu_memory_stats(self) -> None:
+        """Log GPU memory usage."""
+        if not self.log_gpu_memory or not torch.cuda.is_available():
+            return
+        
+        allocated = torch.cuda.memory_allocated(self.device) / 1024**3  # GB
+        reserved = torch.cuda.memory_reserved(self.device) / 1024**3  # GB
+        
+        self.log("system/gpu_memory_allocated_GB", allocated, on_step=True, on_epoch=False)
+        self.log("system/gpu_memory_reserved_GB", reserved, on_step=True, on_epoch=False)
+
+    def _log_throughput_metrics(self, num_tokens: int) -> None:
+        """Log throughput metrics (tokens/sec)."""
+        current_time = time.time()
+        
+        if self.training_start_time is None:
+            self.training_start_time = current_time
+            self.last_log_time = current_time
+        
+        # Log instantaneous throughput (since last log)
+        if self.last_log_time is not None:
+            time_delta = current_time - self.last_log_time
+            if time_delta > 0:
+                self.tokens_since_last_log += num_tokens
+                tokens_per_sec = self.tokens_since_last_log / time_delta
+                self.log("performance/tokens_per_sec", tokens_per_sec, 
+                        on_step=True, on_epoch=False, prog_bar=True)
+                # Reset for next measurement
+                self.last_log_time = current_time
+                self.tokens_since_last_log = 0
+        
+        # Log average throughput (since training start)
+        total_time = current_time - self.training_start_time
+        if total_time > 0:
+            avg_tokens_per_sec = self.total_tokens_seen / total_time
+            self.log("performance/avg_tokens_per_sec", avg_tokens_per_sec,
+                    on_step=False, on_epoch=True, prog_bar=False)
+
     def on_fit_start(self) -> None:
         """
         Template method: PTQ → QAT pipeline.
@@ -467,8 +573,16 @@ class BitDistillPreTrainer(pl.LightningModule):
         dtype = self._get_trainer_compute_dtype()
         self.model.to(device=self.device, dtype=dtype)
         
+        # Reset timing metrics
+        self.training_start_time = None
+        self.last_log_time = None
+        self.tokens_since_last_log = 0
+        
         # Reset flag for future training runs
         self._loaded_from_checkpoint = False
+        
+        # Flag to log model stats on first training step
+        self._logged_model_stats = False
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
@@ -490,44 +604,104 @@ class BitDistillPreTrainer(pl.LightningModule):
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
         labels = batch["labels"]
+        
+        # Log batch statistics
+        batch_size = input_ids.shape[0]
+        seq_length = input_ids.shape[1]
+        self.log(f"{prefix}/batch_size", float(batch_size), on_step=True, on_epoch=False)
+        self.log(f"{prefix}/seq_length", float(seq_length), on_step=True, on_epoch=False)
+        
         logits = self(input_ids, attention_mask)
         loss = self._compute_ce_loss(logits, labels)
         perplexity = torch.exp(loss)
+        
+        # Enhanced logging with better organization
         self.log(
-            f"{prefix}_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True
+            f"{prefix}/loss", loss, 
+            on_step=True, on_epoch=True, prog_bar=True, sync_dist=True
         )
         self.log(
-            f"{prefix}_perplexity",
-            perplexity,
-            on_step=False,
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
+            f"{prefix}/perplexity", perplexity,
+            on_step=True, on_epoch=True, prog_bar=True, sync_dist=True
         )
+        
+        # Log token accuracy (optional, useful for monitoring)
+        with torch.no_grad():
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            predictions = shift_logits.argmax(dim=-1)
+            
+            # Only compute accuracy on non-padding tokens
+            mask = shift_labels != -100
+            if mask.sum() > 0:
+                correct = (predictions == shift_labels) & mask
+                accuracy = correct.sum().float() / mask.sum().float()
+                self.log(f"{prefix}/token_accuracy", accuracy, 
+                        on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
+        
         return loss
 
     def training_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
-        self.total_tokens_seen += self._count_tokens(batch["labels"])
+        # Log model stats and initial learning rate on first training step
+        if not self._logged_model_stats:
+            self._log_quantization_stats()
+            self.log("optimization/initial_lr", self.learning_rate, on_step=True, on_epoch=False)
+            self._logged_model_stats = True
+        
+        num_tokens = self._count_tokens(batch["labels"])
+        self.total_tokens_seen += num_tokens
+        
         loss = self._shared_step(batch, batch_idx, "train")
-        self.log("tokens_seen", float(self.total_tokens_seen), on_step=True, on_epoch=False, prog_bar=True)
+        
+        # Log cumulative tokens
+        self.log("train/tokens_seen", float(self.total_tokens_seen), 
+                on_step=True, on_epoch=False, prog_bar=True)
+        self.log("train/tokens_seen_M", float(self.total_tokens_seen) / 1e6,
+                on_step=True, on_epoch=False, prog_bar=False)
+        
+        # Log throughput metrics
+        self._log_throughput_metrics(num_tokens)
+        
+        # Log GPU memory
+        self._log_gpu_memory_stats()
+        
         return loss
+
+    def on_before_optimizer_step(self, optimizer) -> None:
+        """Called before optimizer.step(). Log gradient norms here."""
+        self._log_gradient_norms()
+
+    def on_train_epoch_end(self) -> None:
+        """Called at the end of training epoch."""
+        # Log weight statistics
+        self._log_weight_statistics()
+        
+        # Log current learning rate
+        try:
+            if self.trainer and self.trainer.optimizers:
+                current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+                self.log("optimization/learning_rate", current_lr, on_step=False, on_epoch=True)
+        except (AttributeError, IndexError):
+            pass  # Skip if optimizer not available yet
 
     def validation_step(self, batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, batch_idx, "val")
 
-    def configure_optimizers(self) -> Dict[str, Any]:
+    def configure_optimizers(self):
         trainable_params = [p for p in self.model.parameters() if p.requires_grad]
-        return torch.optim.AdamW(
+        optimizer = torch.optim.AdamW(
             trainable_params,
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
             betas=(0.9, 0.95),
         )
+        
+        return optimizer
 
     def chat(
         self,
         prompt: str,
-        generation_params: dict,
+        generation_params: dict = {"max_new_tokens": 100},
         show_tokens: bool = True,
         use_chat_template: bool = False,
     ) -> Tuple[str, str]:
@@ -626,4 +800,3 @@ class BitDistillPreTrainer(pl.LightningModule):
         if not has_qat: 
             self.prepare_qat()
         super().on_save_checkpoint(checkpoint)
-        

@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 from datasets import Dataset, load_dataset, load_from_disk
+from tqdm import tqdm
 
 from src.data import dataset
 from src.utils import data_path, get_data_dir
@@ -67,6 +68,7 @@ def download_fineweb_edu(
         A Hugging Face Dataset object loaded from disk.
     """
     from datasets import Dataset, load_dataset
+    from tqdm import tqdm
 
     output_dir = data_path("fineweb-edu")
 
@@ -87,9 +89,9 @@ def download_fineweb_edu(
     stream_ds = stream_ds.shuffle(seed=seed, buffer_size=buffer_size)
     stream_ds = stream_ds.take(num_samples)
     
-    # Collect samples into a list
+    # Collect samples into a list with progress bar
     samples = []
-    for sample in stream_ds:
+    for sample in tqdm(stream_ds, total=num_samples, desc="Downloading samples"):
         samples.append(sample)
     
     print(f"Collected {len(samples)} samples")
@@ -133,7 +135,8 @@ def download_falcon_refinedweb(
     Returns:
         A Hugging Face Dataset object loaded from disk.
     """
-
+    from datasets import Dataset, load_dataset
+    from tqdm import tqdm
 
     output_dir = data_path("falcon-refinedweb")
 
@@ -153,9 +156,9 @@ def download_falcon_refinedweb(
     stream_ds = stream_ds.shuffle(seed=seed, buffer_size=buffer_size)
     stream_ds = stream_ds.take(num_samples)
     
-    # Collect samples into a list
+    # Collect samples into a list with progress bar
     samples = []
-    for sample in stream_ds:
+    for sample in tqdm(stream_ds, total=num_samples, desc="Downloading samples"):
         samples.append(sample)
     
     print(f"Collected {len(samples)} samples")
