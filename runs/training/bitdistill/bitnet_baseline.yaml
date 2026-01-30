@@ -3,7 +3,7 @@
 # This stage uses only cross-entropy loss to adapt the quantized model to the data distribution
 
 datamodule: 
-  type: falcon-refinedweb-pt
+  type: fineweb-edu-pt
   tokenizer_name: smollm2_360m_pt
   batch_size: 8
   num_workers: 0
@@ -29,30 +29,25 @@ trainer:
 
 logger: 
   type: tensorboard 
-  save_dir: test_logs/
-  name: bitdistill_qwen3_experiment  # Optional: creates subdirectory
-  version: continued-pretrain-medium-lr  # This will be the folder name instead of version_N
+  save_dir: logs/training/bidistill
+  name: smollm2_360m # Optional: creates subdirectory
+  version: bitnet-baseline  # This will be the folder name instead of version_N
 
-#logger: 
-#  type: wandb
-#  project: bitdistill_qwen3_06B  # WandB project name (like workspace)
-#  name: continued-pretrain-1  # Run name (equivalent to TensorBoard's version)
-#  save_dir: logs/wandb/bitdistill_qwen3_06B  # Optional: local save directory
 
-#checkpoint: 
-#  monitor: train_loss 
-#  mode: min #
-#  save_top_k: 3  # Save top 3 best checkpoints (based on train_loss)
-#  dirpath: checkpoints/bitdistill/qwen3_06B/continued-pretrain-1
-#  filename: "qwen3_06B-{step}-{train_loss:.4f}"  # Include step and loss in filename
-#  every_n_train_steps: 2000  # Checkpoint every N training steps (adjust as needed)
-#  save_last: true  # 
+checkpoint: 
+  monitor: train_loss 
+  mode: min #
+  save_top_k: 3  # Save top 3 best checkpoints (based on train_loss)
+  dirpath: checkpoints/bitdistill/smollm2_360m/bitnet-baseline/
+  filename: "bitnet-baseline-{train_loss:.4f}"  # Include step and loss in filename
+  every_n_train_steps: 2000  # Checkpoint every N training steps (adjust as needed)
+  save_last: true  # 
 
 pl_trainer: 
   # Duration: use max_epochs OR max_tokens. Tokens per step = batch_size × max_length (sequence length).
   # Here: 8 × 256 = 2048 tokens/step → 10_000_000 tokens ≈ 4882 steps.
   # max_epochs: 10  # epoch-based (ignored if max_tokens is set)
-  max_tokens: 10_000_000  # ~10M tokens → ~4882 steps
+  max_tokens: 1_000_000_000  # 1B tokens
   accelerator: gpu 
   #devices: 2
   precision: bf16-true
