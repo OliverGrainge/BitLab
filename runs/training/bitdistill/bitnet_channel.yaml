@@ -6,7 +6,7 @@ datamodule:
   type: fineweb-edu-pt
   tokenizer_name: smollm2_360m_pt
   batch_size: 16
-  num_workers: 0
+  num_workers: 4
   max_length: 512  # Truncate sequences to prevent OOM errors
 
 trainer: 
