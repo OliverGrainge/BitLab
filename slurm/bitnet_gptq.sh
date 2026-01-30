@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=bitdistill_qwen3
-#SBATCH --output=slurm/bitdistill_qwen3_%j.out
-#SBATCH --error=slurm/bitdistill_qwen3_%j.err
+#SBATCH --job-name=bitnet_gptq
+#SBATCH --output=slurm/bitnet_gptq_%j.out
+#SBATCH --error=slurm/bitnet_gptq_%j.err
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2
-#SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:2
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=12
+#SBATCH --gres=gpu:1
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
 #SBATCH --partition=a100  # Update this with your actual partition name
@@ -46,6 +46,6 @@ cd /home/oeg1n18/BitLab
 # Run training
 # Using srun ensures each task gets proper GPU assignment and SLURM environment variables
 echo "Starting training at $(date)"
-srun python -m src.train /home/oeg1n18/BitLab/runs/training/experiments/bitdistill_qwen3_pt.yaml
+srun python -m src.train runs/training/bitdistill/bitnet_gptq.yaml
 
 echo "Training completed at $(date)"
