@@ -260,8 +260,8 @@ class BitDistillPreTrainer(pl.LightningModule):
         target_subln_modules: Optional[List[str]] = None,
         quant_type: str = "bitnet",
         ptq_method: Optional[str] = None,
-        calibration_samples: int = 128,
-        n_bit_ptq: int = 4,
+        calibration_samples: Optional[int] = None,
+        n_bit_ptq: Optional[int] = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -272,8 +272,13 @@ class BitDistillPreTrainer(pl.LightningModule):
         self.target_subln_modules = target_subln_modules or []
         self.quant_type = quant_type
         self.ptq_method = ptq_method
-        self.calibration_samples = int(calibration_samples)
-        self.n_bit_ptq = int(n_bit_ptq)
+
+        # Only convert to int if not None, otherwise keep as None.
+        self.calibration_samples = (
+            int(calibration_samples) if calibration_samples is not None else None
+        )
+        self.n_bit_ptq = int(n_bit_ptq) if n_bit_ptq is not None else None
+
         self.total_tokens_seen = 0
         
         # Track whether we're loading from checkpoint

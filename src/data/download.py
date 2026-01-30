@@ -50,7 +50,7 @@ def download_alpaca():
 
 
 def download_fineweb_edu(
-    num_samples: int = 800000,
+    num_samples: int = 16000000,
     buffer_size: int = 1000,
     seed: int = 0,
 ):
