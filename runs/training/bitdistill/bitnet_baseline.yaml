@@ -5,9 +5,9 @@
 datamodule: 
   type: fineweb-edu-pt
   tokenizer_name: smollm2_360m_pt
-  batch_size: 8
+  batch_size: 32
   num_workers: 0
-  max_length: 256  # Truncate sequences to prevent OOM errors
+  max_length: 512  # Truncate sequences to prevent OOM errors
 
 trainer: 
   type: bitdistillpretrainer  # Stage 1: Pretraining only
