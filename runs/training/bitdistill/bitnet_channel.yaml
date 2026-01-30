@@ -5,7 +5,7 @@
 datamodule: 
   type: fineweb-edu-pt
   tokenizer_name: smollm2_360m_pt
-  batch_size: 16
+  batch_size: 32
   num_workers: 4
   max_length: 512  # Truncate sequences to prevent OOM errors
 
@@ -47,11 +47,11 @@ pl_trainer:
   # Duration: use max_epochs OR max_tokens. Tokens per step = batch_size × max_length (sequence length).
   # Here: 8 × 256 = 2048 tokens/step → 10_000_000 tokens ≈ 4882 steps.
   # max_epochs: 10  # epoch-based (ignored if max_tokens is set)
-  max_tokens: 1_000_000_000  # 1B tokens
+  max_tokens: 2_000_000_000  # 1B tokens
   accelerator: gpu 
   #devices: 2
   precision: bf16-true
-  enable_progress_bar: true
+  enable_progress_bar: false
   #strategy: ddp  # Use DDP for multi-GPU training
   
   # Optional: Add validation
