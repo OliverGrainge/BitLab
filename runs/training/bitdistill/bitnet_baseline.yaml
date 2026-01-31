@@ -20,10 +20,8 @@ trainer:
   target_subln_modules: ["o_proj", "down_proj"]  
   quant_type: bitnet
 
-  # Initialization Seetings 
-  #ptq_method: null
-  #calibration_samples: null
-  #n_bit_ptq: null
+  initialization: {}
+  loss: { loss_type: ce }
 
 
 

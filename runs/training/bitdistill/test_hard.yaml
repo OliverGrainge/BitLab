@@ -3,11 +3,11 @@
 # This stage uses only cross-entropy loss to adapt the quantized model to the data distribution
 
 datamodule: 
-  type: fineweb-edu-pt
+  type: falcon-refinedweb-pt
   tokenizer_name: smollm2_360m_pt
-  batch_size: 32
-  num_workers: 4
-  max_length: 512  # Truncate sequences to prevent OOM errors
+  batch_size: 8
+  num_workers: 0
+  max_length: 256  # Truncate sequences to prevent OOM errors
 
 trainer: 
   type: bitdistillpretrainer  # Stage 1: Pretraining only
@@ -18,7 +18,7 @@ trainer:
   # Quantization settings
   target_quant_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]  # Quantize attention and MLP layers
   target_subln_modules: ["o_proj", "down_proj"]  
-  quant_type: bitnet_channel
+  quant_type: bitnet_lsq_channel
 
   initialization:
     ptq_method: gptq
@@ -32,23 +32,23 @@ logger:
   type: tensorboard 
   save_dir: logs/training/bidistill
   name: smollm2_360m # Optional: creates subdirectory
-  version: bitnet-channel-gptq  # This will be the folder name instead of version_N
+  version: bitnet-gptq-lsq-channel  # This will be the folder name instead of version_N
 
 
 checkpoint: 
   monitor: train_loss 
   mode: min #
   save_top_k: 3  # Save top 3 best checkpoints (based on train_loss)
-  dirpath: checkpoints/bitdistill/smollm2_360m/bitnet-gptq/
-  filename: "bitnet-gptq-{train_loss:.4f}"  # Include step and loss in filename
-  every_n_train_steps: 10  # Checkpoint every N training steps (adjust as needed)
+  dirpath: checkpoints/bitdistill/smollm2_360m/bitnet-gptq-lsq-channel/
+  filename: "bitnet-gptq-lsq-channel-{train_loss:.4f}"  # Include step and loss in filename
+  every_n_train_steps: 20  # Checkpoint every N training steps (adjust as needed)
   save_last: true  # 
 
 pl_trainer: 
   # Duration: use max_epochs OR max_tokens. Tokens per step = batch_size × max_length (sequence length).
   # Here: 8 × 256 = 2048 tokens/step → 10_000_000 tokens ≈ 4882 steps.
   # max_epochs: 10  # epoch-based (ignored if max_tokens is set)
-  max_tokens: 2_000_000_000  # 1B tokens
+  max_tokens: 1_000_000_000  # 1B tokens
   accelerator: gpu 
   #devices: 2
   precision: bf16-true
