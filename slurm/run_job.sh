@@ -1,7 +1,7 @@
 #!/bin/bash
 # Defaults are set here but overridden by submit_jobs.sh via sbatch flags.
-#SBATCH --output=slurm/%x_%j.out
-#SBATCH --error=slurm/%x_%j.err
+#SBATCH --output=slurm/logs/%x_%j.out
+#SBATCH --error=slurm/logs/%x_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
