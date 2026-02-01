@@ -1,0 +1,48 @@
+datamodule: 
+  type: fineweb-edu-pt
+  tokenizer_name: smollm2_360m_pt
+  batch_size: 8
+  num_workers: 4
+  max_length: 512  # Truncate sequences to prevent OOM errors
+
+trainer: 
+  type: bitdistillpretrainer  # Stage 1: Pretraining only
+  model_name: smollm2_360m_pt
+  learning_rate: 1e-4
+  weight_decay: 0.0
+  
+  # Quantization settings
+  target_quant_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]  # Quantize attention and MLP layers
+  target_subln_modules: ["o_proj", "down_proj"]  
+  quant_type: bitnet
+
+  initialization:
+    ptq_method: awq
+    calibration_samples: 32
+    n_bit_ptq: 4
+
+  loss:
+    loss_type: ce
+    #distill_temperature: 1.0
+    #distill_beta: 0.5
+
+logger:
+  type: wandb
+  project: bitdistill  # WandB project (dashboard grouping)
+  name: init-awq-4  # Run name (like your current version)
+  save_dir: logs/wandb/bitdistill  # Optional: where to store W&B files local
+
+#checkpoint: 
+#  monitor: train_loss 
+#  mode: min #
+#  save_top_k: 3  # Save top 3 best checkpoints (based on train_loss)
+#  dirpath: checkpoints/bitdistill/smollm2_360m/baseline/
+#  filename: "baseline-{train_loss:.4f}"  # Include step and loss in filename
+#  every_n_train_steps: 2000  # Checkpoint every N training steps (adjust as needed)
+#  save_last: true  # 
+
+pl_trainer: 
+  max_tokens: 500_000_000  # 1B tokens
+  accelerator: gpu 
+  precision: bf16-true
+  enable_progress_bar: false

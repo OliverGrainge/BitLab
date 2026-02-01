@@ -380,6 +380,28 @@ class BitDistillPreTrainer(pl.LightningModule):
             results.append((name, module, needs_subln))
         return results
 
+    def get_subln_only_linear_modules(self) -> List[Tuple[str, nn.Module]]:
+        """Linear layers that need SubLN but are NOT being converted to BitLinear.
+
+        These are layers whose name matches a pattern in ``target_subln_modules``
+        but does *not* match any pattern in ``target_quant_modules``.  They stay
+        as plain ``nn.Linear`` but get wrapped in
+        ``Sequential(RMSNormNoParam, Linear)``.
+        """
+        if not self.target_subln_modules:
+            return []
+        results = []
+        for name, module in self.model.named_modules():
+            if not isinstance(module, nn.Linear):
+                continue
+            if not any(pattern in name for pattern in self.target_subln_modules):
+                continue
+            # Skip layers already handled by the BitLinear path in prepare_qat
+            if any(pattern in name for pattern in self.target_quant_modules):
+                continue
+            results.append((name, module))
+        return results
+
     def _set_module_by_name(self, name: str, module: nn.Module) -> None:
         parts = name.split(".")
         parent = self.model
@@ -482,19 +504,27 @@ class BitDistillPreTrainer(pl.LightningModule):
                         )
 
     def prepare_qat(self) -> None:
-        """Replace target Linear layers with BitLinear for QAT."""
+        """Replace target Linear layers with BitLinear for QAT, and wrap any
+        remaining Linear layers that match ``target_subln_modules`` with SubLN."""
+        # --- Pass 1: BitLinear replacement (+ SubLN where both flags match) ---
         modules_to_replace = self.get_target_linear_modules()
-        if not modules_to_replace:
-            return
+        if modules_to_replace:
+            iterator = tqdm(modules_to_replace, desc="[QAT] Quantizing BitLinear layers")
+            for name, module, needs_subln in iterator:
+                bitlinear = BitLinear.from_linear(module, quant_type=self.quant_type)
+                if needs_subln:
+                    new_module = nn.Sequential(RMSNormNoParam(bitlinear.in_features), bitlinear)
+                else:
+                    new_module = bitlinear
+                self._set_module_by_name(name, new_module)
 
-        iterator = tqdm(modules_to_replace, desc="[QAT] Quantizing BitLinear layers")
-        for name, module, needs_subln in iterator:
-            bitlinear = BitLinear.from_linear(module, quant_type=self.quant_type)
-            if needs_subln:
-                new_module = nn.Sequential(RMSNormNoParam(bitlinear.in_features), bitlinear)
-            else:
-                new_module = bitlinear
-            self._set_module_by_name(name, new_module)
+        # --- Pass 2: SubLN-only wrapping for plain Linear layers ---
+        subln_only = self.get_subln_only_linear_modules()
+        if subln_only:
+            iterator = tqdm(subln_only, desc="[QAT] Adding SubLN to Linear layers")
+            for name, module in iterator:
+                new_module = nn.Sequential(RMSNormNoParam(module.in_features), module)
+                self._set_module_by_name(name, new_module)
 
     # -------------------------------------------------------------------------
     # Lifecycle hooks
